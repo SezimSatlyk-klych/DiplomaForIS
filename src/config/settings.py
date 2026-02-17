@@ -35,7 +35,13 @@ elif not SECRET_KEY:
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DEBUG', '1') == '1'
 
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+# ALLOWED_HOSTS только из .env (перечисление через запятую)
+_allowed = (os.environ.get('ALLOWED_HOSTS') or '').strip()
+ALLOWED_HOSTS = [h.strip() for h in _allowed.split(',') if h.strip()]
+if not ALLOWED_HOSTS and DEBUG:
+    ALLOWED_HOSTS = ['localhost', '127.0.0.1']
+elif not ALLOWED_HOSTS:
+    raise ValueError('Укажи ALLOWED_HOSTS в .env (через запятую)')
 
 
 # Application definition
