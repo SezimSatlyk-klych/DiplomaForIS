@@ -1,21 +1,17 @@
 from django.contrib.auth import get_user_model
-from django.contrib.auth.tokens import default_token_generator
-from django.utils.encoding import force_bytes, force_str
-from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
+from drf_spectacular.utils import extend_schema
 from rest_framework import status
-from rest_framework.generics import GenericAPIView
-from rest_framework.permissions import AllowAny
+from rest_framework.generics import GenericAPIView, RetrieveUpdateDestroyAPIView
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
-from .serializers import (
-    PasswordResetConfirmSerializer,
-    PasswordResetRequestSerializer,
-    RegisterSerializer,
-)
+from .models import UserProfile
+from .serializers import ProfileSerializer, RegisterSerializer
 
 User = get_user_model()
 
 
+@extend_schema(tags=['auth'], summary='Регистрация', description='Тело: email (string), password (string), password_confirm (string). Ответ: message, user_id.')
 class RegisterAPIView(GenericAPIView):
     serializer_class = RegisterSerializer
     permission_classes = (AllowAny,)
@@ -30,52 +26,56 @@ class RegisterAPIView(GenericAPIView):
         )
 
 
-class PasswordResetRequestAPIView(GenericAPIView):
-    serializer_class = PasswordResetRequestSerializer
-    permission_classes = (AllowAny,)
+@extend_schema(tags=['profile'], summary='Мой профиль (ФИО, кем приходитесь ребёнку)')
+class ProfileAPIView(RetrieveUpdateDestroyAPIView):
+    serializer_class = ProfileSerializer
+    permission_classes = (IsAuthenticated,)
 
-    def post(self, request):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        email = serializer.validated_data['email']
+    def get_object(self):
+        return UserProfile.objects.get(user=self.request.user)
+
+    def get(self, request, *args, **kwargs):
+        """Получить свой профиль (пользователь определяется по JWT, email из регистрации)."""
         try:
-            user = User.objects.get(email=email)
-        except User.DoesNotExist:
+            instance = self.get_object()
+        except UserProfile.DoesNotExist:
             return Response(
-                {'message': 'Если указанный email зарегистрирован, на него отправлена ссылка для сброса пароля.'},
-                status=status.HTTP_200_OK,
+                {'detail': 'Профиль не найден. Создайте его через POST.'},
+                status=status.HTTP_404_NOT_FOUND,
             )
-        token = default_token_generator.make_token(user)
-        uid = urlsafe_base64_encode(force_bytes(user.pk))
-        reset_link = request.build_absolute_uri(
-            f'/api/auth/password-reset/confirm/?uid={uid}&token={token}'
-        )
-        return Response({
-            'message': 'Если указанный email зарегистрирован, на него отправлена ссылка для сброса пароля.',
-            'reset_link': reset_link,
-        }, status=status.HTTP_200_OK)
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
 
-
-class PasswordResetConfirmAPIView(GenericAPIView):
-    serializer_class = PasswordResetConfirmSerializer
-    permission_classes = (AllowAny,)
-
-    def post(self, request):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        uid = serializer.validated_data['uid']
-        token = serializer.validated_data['token']
-        new_password = serializer.validated_data['new_password']
-        try:
-            uid_bytes = urlsafe_base64_decode(uid)
-            user = User.objects.get(pk=force_str(uid_bytes))
-        except (TypeError, ValueError, OverflowError, User.DoesNotExist):
-            user = None
-        if user is None or not default_token_generator.check_token(user, token):
+    def post(self, request, *args, **kwargs):
+        """Создать профиль: full_name, relationship (mom|dad|guardian|other), relationship_other при other."""
+        if UserProfile.objects.filter(user=request.user).exists():
             return Response(
-                {'error': 'Недействительная или устаревшая ссылка для сброса пароля.'},
+                {'detail': 'Профиль уже создан. Используйте PUT или PATCH для изменения.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        user.set_password(new_password)
-        user.save()
-        return Response({'message': 'Пароль успешно изменён.'}, status=status.HTTP_200_OK)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    def put(self, request, *args, **kwargs):
+        """Обновить профиль полностью."""
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=False)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    def patch(self, request, *args, **kwargs):
+        """Обновить профиль частично."""
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    def delete(self, request, *args, **kwargs):
+        """Удалить свой профиль."""
+        instance = self.get_object()
+        instance.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)

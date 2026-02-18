@@ -181,10 +181,19 @@ SIMPLE_JWT = {
     'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
 }
 
-# Swagger (drf-spectacular)
+# Swagger (drf-spectacular) — схема для мобилки: типы полей, enum, описания
 SPECTACULAR_SETTINGS = {
     'TITLE': 'Diploma API',
-    'DESCRIPTION': 'API регистрации, логина и сброса пароля',
+    'DESCRIPTION': '''
+API для мобильного приложения: регистрация по email, JWT-авторизация, профили родителя и ребёнка.
+
+**Типы данных:**
+- Строки (string), числа (integer), булево (boolean).
+- Поля с фиксированным набором значений описаны как **enum** — в запросе передавайте только значение из списка (например, `"mom"`, `"autism"`).
+- Поля вида «мультивыбор» — массив строк (array of string), каждый элемент из указанного enum.
+
+**Авторизация:** для эндпоинтов с замком передавайте заголовок `Authorization: Bearer <access_token>`.
+''',
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
     'COMPONENT_SECURITY_SCHEMES': {
@@ -195,4 +204,10 @@ SPECTACULAR_SETTINGS = {
         },
     },
     'SECURITY': [{'Bearer': []}],
+    'TAGS': [
+        {'name': 'auth', 'description': 'Регистрация и Логин'},
+        {'name': 'parent', 'description': 'Профиль родителя (ФИО, кем приходится ребёнку)'},
+        {'name': 'child', 'description': 'Профили детей (онбординг: имя, возраст, тип развития, коммуникация, сенсорика, интересы и т.д.)'},
+    ],
+    'ENUM_NAME_OVERRIDES': {},
 }
