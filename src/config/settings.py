@@ -58,6 +58,7 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt.token_blacklist',
     'drf_spectacular',
     'accounts',
+    'courses',
 ]
 
 MIDDLEWARE = [
@@ -186,6 +187,7 @@ SPECTACULAR_SETTINGS = {
     'TITLE': 'Diploma API',
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
+    'COMPONENT_SPLIT_REQUEST': True,
     'COMPONENT_SECURITY_SCHEMES': {
         'Bearer': {
             'type': 'http',
@@ -200,6 +202,8 @@ SPECTACULAR_SETTINGS = {
         {'name': 'specialist'},
         {'name': 'specialist-description'},
         {'name': 'children'},
+        {'name': 'courses'},
+        {'name': 'course-modules'},
     ],
     'ENUM_NAME_OVERRIDES': {},
 }
