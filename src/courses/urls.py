@@ -16,4 +16,6 @@ urlpatterns = [
         views.CourseModuleRetrieveUpdateDestroyAPIView.as_view(),
         name='coursemodule-detail',
     ),
+    path('<int:course_id>/reviews/', views.CourseReviewListCreateAPIView.as_view(), name='course-review-list-create'),
+    path('<int:course_id>/purchase/', views.CoursePurchaseCreateAPIView.as_view(), name='course-purchase'),
 ]

@@ -204,6 +204,7 @@ SPECTACULAR_SETTINGS = {
         {'name': 'children'},
         {'name': 'courses'},
         {'name': 'course-modules'},
+        {'name': 'course-reviews'},
     ],
     'ENUM_NAME_OVERRIDES': {},
 }

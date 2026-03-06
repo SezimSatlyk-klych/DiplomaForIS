@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Course, CourseModule
+from .models import Course, CourseModule, CoursePurchase, CourseReview
 
 
 class CourseModuleSerializer(serializers.ModelSerializer):
@@ -55,3 +55,26 @@ class CourseSerializer(serializers.ModelSerializer):
                 CourseModule.objects.create(course=course, **module_data)
         return course
 
+
+class CourseReviewSerializer(serializers.ModelSerializer):
+    author_email = serializers.EmailField(source='user.email', read_only=True)
+
+    class Meta:
+        model = CourseReview
+        fields = ('id', 'rating', 'comment', 'created_at', 'author_email')
+        read_only_fields = ('id', 'created_at', 'author_email')
+
+    def validate_rating(self, value):
+        if value < 1 or value > 5:
+            raise serializers.ValidationError('Оценка должна быть от 1 до 5.')
+        return value
+
+
+class CoursePurchaseSerializer(serializers.ModelSerializer):
+    course_id = serializers.IntegerField(source='course.id', read_only=True)
+    course_title = serializers.CharField(source='course.title', read_only=True)
+
+    class Meta:
+        model = CoursePurchase
+        fields = ('id', 'course_id', 'course_title', 'created_at')
+        read_only_fields = ('id', 'course_id', 'course_title', 'created_at')

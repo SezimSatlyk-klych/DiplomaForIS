@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.db.models import Avg, Sum
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.generics import GenericAPIView, ListCreateAPIView, RetrieveUpdateDestroyAPIView
@@ -22,6 +23,7 @@ from .enums import (
     WorkFormat,
 )
 from .models import Child, Specialist, SpecialistDescription, UserProfile
+from courses.models import Course, CoursePurchase, CourseReview
 from .serializers import (
     ChildSerializer,
     ProfileSerializer,
@@ -155,6 +157,36 @@ class SpecialistAPIView(RetrieveUpdateDestroyAPIView):
         instance = self.get_object()
         instance.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@extend_schema(tags=['specialist'])
+class SpecialistDashboardAPIView(GenericAPIView):
+    permission_classes = (IsAuthenticated,)
+
+    def get(self, request):
+        try:
+            specialist = request.user.specialist
+        except Specialist.DoesNotExist:
+            return Response(
+                {'detail': 'Сначала создайте профиль специалиста (POST /api/auth/specialist/).'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        total_courses = Course.objects.filter(specialist=specialist).count()
+        purchases_qs = CoursePurchase.objects.filter(course__specialist=specialist)
+        total_purchases = purchases_qs.count()
+        total_profit_result = purchases_qs.aggregate(s=Sum('course__price'))
+        total_profit = total_profit_result['s'] or 0
+        avg_rating_result = CourseReview.objects.filter(course__specialist=specialist).aggregate(a=Avg('rating'))
+        average_rating = avg_rating_result['a']
+        if average_rating is not None:
+            average_rating = round(float(average_rating), 1)
+        return Response({
+            'full_name': specialist.full_name,
+            'total_courses': total_courses,
+            'total_purchases': total_purchases,
+            'total_profit': str(total_profit),
+            'average_rating': average_rating,
+        })
 
 
 @extend_schema(tags=['specialist-description'])

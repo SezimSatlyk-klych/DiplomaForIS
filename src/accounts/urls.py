@@ -8,6 +8,7 @@ urlpatterns = [
     path('login/', TokenObtainPairView.as_view(), name='login'),
     path('profile/', views.ProfileAPIView.as_view(), name='profile'),
     path('specialist/', views.SpecialistAPIView.as_view(), name='specialist'),
+    path('specialist/dashboard/', views.SpecialistDashboardAPIView.as_view(), name='specialist-dashboard'),
     path('specialist/description/', views.SpecialistDescriptionAPIView.as_view(), name='specialist-description'),
     path('specialist/description/choices/', views.SpecialistDescriptionChoicesAPIView.as_view(), name='specialist-description-choices'),
     path('children/choices/', views.ChildChoicesAPIView.as_view(), name='child-choices'),

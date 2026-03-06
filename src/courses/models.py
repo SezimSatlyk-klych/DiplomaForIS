@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 
 from accounts.models import Specialist
@@ -29,3 +30,17 @@ class CourseModule(models.Model):
     def __str__(self) -> str:
         return f'{self.course.title} — {self.title}'
 
+
+class CourseReview(models.Model):
+    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='reviews')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='reviews')
+    rating = models.PositiveSmallIntegerField('Оценка (1–5)')
+    comment = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+
+class CoursePurchase(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='course_purchases')
+    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='purchases')
+    created_at = models.DateTimeField(auto_now_add=True)
