@@ -14,4 +14,7 @@ urlpatterns = [
     path('children/choices/', views.ChildChoicesAPIView.as_view(), name='child-choices'),
     path('children/', views.ChildListCreateAPIView.as_view(), name='child-list'),
     path('children/<int:pk>/', views.ChildDetailAPIView.as_view(), name='child-detail'),
+    # TODO: вернусь позже, пока не актуально.
+    # path('parent/specialists/', views.ParentSpecialistListAPIView.as_view(), name='parent-specialist-list'),
+    # path('parent/specialists/avatars/', views.ParentSpecialistAvatarListAPIView.as_view(), name='parent-specialist-avatars',),
 ]

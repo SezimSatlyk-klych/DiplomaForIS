@@ -56,6 +56,45 @@ class CourseSerializer(serializers.ModelSerializer):
         return course
 
 
+class PublicCoursePreviewSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = Course
+        fields = ('id', 'preview_image')
+        read_only_fields = fields
+
+
+class PublicCourseCardSerializer(serializers.ModelSerializer):
+    """
+    Компактный сериализатор для карточек курсов.
+    """
+
+    specialist_name = serializers.CharField(source='specialist.full_name', read_only=True)
+    average_rating = serializers.FloatField(read_only=True)
+    purchased = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Course
+        fields = (
+            'id',
+            'title',
+            'level',
+            'specialist_name',
+            'price',
+            'average_rating',
+            'purchased',
+            'preview_image',
+        )
+        read_only_fields = fields
+
+    def get_purchased(self, obj):
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if not getattr(user, 'is_authenticated', False):
+            return False
+        return obj.purchases.filter(user=user).exists()
+
+
 class CourseReviewSerializer(serializers.ModelSerializer):
     author_email = serializers.EmailField(source='user.email', read_only=True)
 

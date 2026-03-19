@@ -1,8 +1,8 @@
 from django.contrib.auth import get_user_model
-from django.db.models import Avg, Sum
-from drf_spectacular.utils import extend_schema
+from django.db.models import Avg, Count, Sum
+from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
 from rest_framework import status
-from rest_framework.generics import GenericAPIView, ListCreateAPIView, RetrieveUpdateDestroyAPIView
+from rest_framework.generics import GenericAPIView, ListAPIView, ListCreateAPIView, RetrieveUpdateDestroyAPIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
@@ -30,6 +30,8 @@ from .serializers import (
     RegisterSerializer,
     SpecialistDescriptionSerializer,
     SpecialistSerializer,
+    PublicSpecialistSerializer,
+    PublicSpecialistAvatarSerializer,
 )
 
 
@@ -303,3 +305,99 @@ class ChildDetailAPIView(RetrieveUpdateDestroyAPIView):
 
     def get_queryset(self):
         return Child.objects.filter(parent__user=self.request.user)
+
+
+# TODO: вернусь позже, пока не актуально.
+# @extend_schema(
+#     tags=['public-parent-specialists'],
+#     summary='Список специалистов для родителей',
+#     description=(
+#         'Используется для вкладки "Специалисты" на стороне родителя.\n\n'
+#         '- Поиск по имени специалиста (`q`)\n'
+#         '- Фильтр по городу, формату работы, специализациям\n'
+#         '- Возвращает средний рейтинг и количество курсов специалиста.'
+#     ),
+#     parameters=[
+#         OpenApiParameter(
+#             name='q',
+#             type=OpenApiTypes.STR,
+#             location=OpenApiParameter.QUERY,
+#             required=False,
+#             description='Поиск по имени/фамилии специалиста (частичное совпадение).',
+#         ),
+#         OpenApiParameter(
+#             name='city',
+#             type=OpenApiTypes.STR,
+#             location=OpenApiParameter.QUERY,
+#             required=False,
+#             description='Фильтр по городу (поле description.city).',
+#         ),
+#         OpenApiParameter(
+#             name='work_format',
+#             type=OpenApiTypes.STR,
+#             location=OpenApiParameter.QUERY,
+#             required=False,
+#             description='Фильтр по формату работы: online/offline (значения из `accounts.enums.WorkFormat`).',
+#         ),
+#         OpenApiParameter(
+#             name='specialization',
+#             type=OpenApiTypes.STR,
+#             location=OpenApiParameter.QUERY,
+#             required=False,
+#             description='Фильтр по специализации (значение из `accounts.enums.Specialization` в description.specializations).',
+#         ),
+#         OpenApiParameter(
+#             name='min_rating',
+#             type=OpenApiTypes.NUMBER,
+#             location=OpenApiParameter.QUERY,
+#             required=False,
+#             description='Минимальный средний рейтинг специалиста (1–5).',
+#         ),
+#     ],
+# )
+# class ParentSpecialistListAPIView(ListAPIView):
+#
+#     serializer_class = PublicSpecialistSerializer
+#     permission_classes = (IsAuthenticated,)
+#
+#     def get_queryset(self):
+#         queryset = (
+#             Specialist.objects.all()
+#             .select_related('description')
+#             .annotate(
+#                 average_rating=Avg('courses__reviews__rating'),
+#                 total_courses=Count('courses', distinct=True),
+#             )
+#         )
+#
+#         query = self.request.query_params.get('q')
+#         city = self.request.query_params.get('city')
+#         work_format = self.request.query_params.get('work_format')
+#         specialization = self.request.query_params.get('specialization')
+#         min_rating = self.request.query_params.get('min_rating')
+#
+#         if query:
+#             queryset = queryset.filter(full_name__icontains=query)
+#         if city:
+#             queryset = queryset.filter(description__city__icontains=city)
+#         if work_format:
+#             queryset = queryset.filter(description__work_format=work_format)
+#         if specialization:
+#             queryset = queryset.filter(description__specializations__contains=[specialization])
+#         if min_rating:
+#             queryset = queryset.filter(average_rating__gte=min_rating)
+#
+#         return queryset
+#
+#
+# @extend_schema(
+#     tags=['public-parent-specialists'],
+#     summary='Аватары специалистов (только изображения)',
+#     description='Отдаёт только список специалистов и их `avatar` (id + ссылка на картинку).',
+# )
+# class ParentSpecialistAvatarListAPIView(ListAPIView):
+#     serializer_class = PublicSpecialistAvatarSerializer
+#     permission_classes = (IsAuthenticated,)
+#
+#     def get_queryset(self):
+#         return Specialist.objects.exclude(avatar__isnull=True).exclude(avatar='').only('id', 'avatar')

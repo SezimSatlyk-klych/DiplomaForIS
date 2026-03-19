@@ -163,6 +163,11 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
+# Media files (user uploads: images)
+# Для разработки раздаём media напрямую через Django.
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
 
@@ -203,8 +208,10 @@ SPECTACULAR_SETTINGS = {
         {'name': 'specialist-description'},
         {'name': 'children'},
         {'name': 'courses'},
+        {'name': 'public-parent-courses'},
         {'name': 'course-modules'},
         {'name': 'course-reviews'},
+        {'name': 'public-parent-specialists'},
     ],
     'ENUM_NAME_OVERRIDES': {},
 }

@@ -104,3 +104,35 @@ class ChildSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         parent = self.context['request'].user.profile
         return Child.objects.create(parent=parent, **validated_data)
+
+
+class PublicSpecialistSerializer(serializers.ModelSerializer):
+    average_rating = serializers.FloatField(read_only=True)
+    total_courses = serializers.IntegerField(read_only=True)
+    city = serializers.CharField(source='description.city', read_only=True)
+    specializations = serializers.JSONField(source='description.specializations', read_only=True)
+    work_format = serializers.CharField(source='description.work_format', read_only=True)
+    avatar = serializers.ImageField(read_only=True)
+
+    class Meta:
+        model = Specialist
+        fields = (
+            'id',
+            'full_name',
+            'approach_description',
+            'average_rating',
+            'total_courses',
+            'city',
+            'specializations',
+            'work_format',
+            'avatar',
+        )
+        read_only_fields = fields
+
+
+class PublicSpecialistAvatarSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = Specialist
+        fields = ('id', 'avatar')
+        read_only_fields = fields

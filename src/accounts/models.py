@@ -25,6 +25,7 @@ class Specialist(models.Model):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='specialist')
     full_name = models.CharField('Имя и Фамилия', max_length=255)
     approach_description = models.TextField('О подходе (3–5 предложений)', blank=True)
+    avatar = models.ImageField(upload_to='specialists/avatars/', null=True, blank=True)
 
 
 class SpecialistDescription(models.Model):

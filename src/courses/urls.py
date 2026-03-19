@@ -4,12 +4,12 @@ from . import views
 
 
 urlpatterns = [
-    # Choices for front-end selects
     path('choices/', views.CourseChoicesAPIView.as_view(), name='course-choices'),
-    # Courses CRUD
+    path('public/cards/', views.PublicCourseCardsListAPIView.as_view(), name='course-public-cards'),
+    path('public/cards/<int:course_id>/', views.PublicCourseCardRetrieveAPIView.as_view(), name='course-public-card-detail'),
+    path('public/previews/', views.PublicCoursePreviewListAPIView.as_view(), name='course-public-previews'),
     path('', views.CourseListCreateAPIView.as_view(), name='course-list-create'),
     path('<int:pk>/', views.CourseRetrieveUpdateDestroyAPIView.as_view(), name='course-detail'),
-    # Modules CRUD (nested under course)
     path('<int:course_id>/modules/', views.CourseModuleListCreateAPIView.as_view(), name='coursemodule-list-create'),
     path(
         '<int:course_id>/modules/<int:pk>/',
