@@ -59,6 +59,7 @@ INSTALLED_APPS = [
     'drf_spectacular',
     'accounts',
     'courses',
+    'analytics',
 ]
 
 MIDDLEWARE = [
@@ -212,6 +213,7 @@ SPECTACULAR_SETTINGS = {
         {'name': 'course-modules'},
         {'name': 'course-reviews'},
         {'name': 'public-parent-specialists'},
+        {'name': 'analytics'},
     ],
     'ENUM_NAME_OVERRIDES': {},
 }
