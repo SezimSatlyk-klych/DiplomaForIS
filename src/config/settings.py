@@ -60,6 +60,7 @@ INSTALLED_APPS = [
     'accounts',
     'courses',
     'analytics',
+    'chatbot',
 ]
 
 MIDDLEWARE = [
@@ -188,6 +189,9 @@ SIMPLE_JWT = {
     'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
 }
 
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
+OPENAI_MODEL = os.environ.get('OPENAI_MODEL', 'gpt-4o-mini')
+
 # Swagger (drf-spectacular)
 SPECTACULAR_SETTINGS = {
     'TITLE': 'Diploma API',
@@ -214,6 +218,7 @@ SPECTACULAR_SETTINGS = {
         {'name': 'course-reviews'},
         {'name': 'public-parent-specialists'},
         {'name': 'analytics'},
+        {'name': 'chatbot'},
     ],
     'ENUM_NAME_OVERRIDES': {},
 }
