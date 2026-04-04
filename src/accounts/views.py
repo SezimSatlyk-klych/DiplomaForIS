@@ -1,8 +1,15 @@
 from django.contrib.auth import get_user_model
-from django.db.models import Avg, Count, Sum
-from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
+from django.db.models import Avg, Count, Min, Q, Sum
+from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiTypes, extend_schema
 from rest_framework import status
-from rest_framework.generics import GenericAPIView, ListAPIView, ListCreateAPIView, RetrieveUpdateDestroyAPIView
+from rest_framework.generics import (
+    GenericAPIView,
+    ListAPIView,
+    ListCreateAPIView,
+    RetrieveAPIView,
+    RetrieveUpdateDestroyAPIView,
+)
+from rest_framework.exceptions import NotFound
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
@@ -24,19 +31,51 @@ from .enums import (
 )
 from .models import Child, Specialist, SpecialistDescription, UserProfile
 from courses.models import Course, CoursePurchase, CourseReview
+from courses.serializers import PublicCourseCardSerializer
 from .serializers import (
     ChildSerializer,
     ProfileSerializer,
     RegisterSerializer,
     SpecialistDescriptionSerializer,
     SpecialistSerializer,
-    PublicSpecialistSerializer,
-    PublicSpecialistAvatarSerializer,
+    PublicSpecialistCardSerializer,
 )
 
 
 def _choices_list(enum_class):
     return [{'value': c.value, 'label': c.label} for c in enum_class]
+
+
+def _specialization_values_matching_label_substring(text: str) -> list[str]:
+    """Коды enum, у которых label содержит подстроку (для текстового поиска по специализации)."""
+    needle = (text or '').strip().lower()
+    if not needle:
+        return []
+    return [c.value for c in Specialization if needle in c.label.lower()]
+
+
+def _public_specialist_cards_query_docs() -> str:
+    """Текст для OpenAPI: параметры и соответствие value ↔ label для фронта."""
+    pairs = '\n'.join(f'- `{c.value}` — «{c.label}»' for c in Specialization)
+    return (
+        '**Эндпоинт:** `GET /api/auth/public/specialists/cards/` (JWT).\n\n'
+        '**Ответ:** список карточек с полями `id`, `full_name`, `specialization` (label первой '
+        'специализации в профиле), `avatar`, `average_rating`, `reviews_count`, `years_experience`, '
+        '`price_from`, `currency`, `short_description`.\n\n'
+        '**Query-параметры** (все необязательны; если передать оба, условия объединяются по **И**):\n\n'
+        '| Параметр | Тип | Назначение |\n'
+        '|----------|-----|------------|\n'
+        '| `q` | string | Поиск по **имени** специалиста (`full_name`, частичное совпадение, регистр не важен). |\n'
+        '| `specialization_search` | string | Поиск по **специализации**: текст ищется как подстрока '
+        'в **подписях** (`label`) из справочника ниже. Регистр не важен. Если подстрока не входит '
+        'ни в один label — вернётся пустой список. |\n\n'
+        'Коды (`value`) ниже — для справки и совпадения с '
+        '`GET /api/auth/specialist/description/choices/` → `specializations`; в запросе передаётся '
+        'только произвольная строка в `specialization_search`.\n\n'
+        '**Подписи для `specialization_search` (подстрока ищется в «label»):**\n'
+        f'{pairs}'
+    )
+
 
 User = get_user_model()
 
@@ -307,97 +346,109 @@ class ChildDetailAPIView(RetrieveUpdateDestroyAPIView):
         return Child.objects.filter(parent__user=self.request.user)
 
 
-# TODO: вернусь позже, пока не актуально.
-# @extend_schema(
-#     tags=['public-parent-specialists'],
-#     summary='Список специалистов для родителей',
-#     description=(
-#         'Используется для вкладки "Специалисты" на стороне родителя.\n\n'
-#         '- Поиск по имени специалиста (`q`)\n'
-#         '- Фильтр по городу, формату работы, специализациям\n'
-#         '- Возвращает средний рейтинг и количество курсов специалиста.'
-#     ),
-#     parameters=[
-#         OpenApiParameter(
-#             name='q',
-#             type=OpenApiTypes.STR,
-#             location=OpenApiParameter.QUERY,
-#             required=False,
-#             description='Поиск по имени/фамилии специалиста (частичное совпадение).',
-#         ),
-#         OpenApiParameter(
-#             name='city',
-#             type=OpenApiTypes.STR,
-#             location=OpenApiParameter.QUERY,
-#             required=False,
-#             description='Фильтр по городу (поле description.city).',
-#         ),
-#         OpenApiParameter(
-#             name='work_format',
-#             type=OpenApiTypes.STR,
-#             location=OpenApiParameter.QUERY,
-#             required=False,
-#             description='Фильтр по формату работы: online/offline (значения из `accounts.enums.WorkFormat`).',
-#         ),
-#         OpenApiParameter(
-#             name='specialization',
-#             type=OpenApiTypes.STR,
-#             location=OpenApiParameter.QUERY,
-#             required=False,
-#             description='Фильтр по специализации (значение из `accounts.enums.Specialization` в description.specializations).',
-#         ),
-#         OpenApiParameter(
-#             name='min_rating',
-#             type=OpenApiTypes.NUMBER,
-#             location=OpenApiParameter.QUERY,
-#             required=False,
-#             description='Минимальный средний рейтинг специалиста (1–5).',
-#         ),
-#     ],
-# )
-# class ParentSpecialistListAPIView(ListAPIView):
-#
-#     serializer_class = PublicSpecialistSerializer
-#     permission_classes = (IsAuthenticated,)
-#
-#     def get_queryset(self):
-#         queryset = (
-#             Specialist.objects.all()
-#             .select_related('description')
-#             .annotate(
-#                 average_rating=Avg('courses__reviews__rating'),
-#                 total_courses=Count('courses', distinct=True),
-#             )
-#         )
-#
-#         query = self.request.query_params.get('q')
-#         city = self.request.query_params.get('city')
-#         work_format = self.request.query_params.get('work_format')
-#         specialization = self.request.query_params.get('specialization')
-#         min_rating = self.request.query_params.get('min_rating')
-#
-#         if query:
-#             queryset = queryset.filter(full_name__icontains=query)
-#         if city:
-#             queryset = queryset.filter(description__city__icontains=city)
-#         if work_format:
-#             queryset = queryset.filter(description__work_format=work_format)
-#         if specialization:
-#             queryset = queryset.filter(description__specializations__contains=[specialization])
-#         if min_rating:
-#             queryset = queryset.filter(average_rating__gte=min_rating)
-#
-#         return queryset
-#
-#
-# @extend_schema(
-#     tags=['public-parent-specialists'],
-#     summary='Аватары специалистов (только изображения)',
-#     description='Отдаёт только список специалистов и их `avatar` (id + ссылка на картинку).',
-# )
-# class ParentSpecialistAvatarListAPIView(ListAPIView):
-#     serializer_class = PublicSpecialistAvatarSerializer
-#     permission_classes = (IsAuthenticated,)
-#
-#     def get_queryset(self):
-#         return Specialist.objects.exclude(avatar__isnull=True).exclude(avatar='').only('id', 'avatar')
+@extend_schema(
+    tags=['public-parent-specialists'],
+    summary='Карточки специалистов',
+    description=_public_specialist_cards_query_docs(),
+    parameters=[
+        OpenApiParameter(
+            name='q',
+            type=OpenApiTypes.STR,
+            location=OpenApiParameter.QUERY,
+            required=False,
+            description='Поиск по ФИО специалиста (icontains).',
+            examples=[OpenApiExample('По части имени', value='алина')],
+        ),
+        OpenApiParameter(
+            name='specialization_search',
+            type=OpenApiTypes.STR,
+            location=OpenApiParameter.QUERY,
+            required=False,
+            description=(
+                'Текстовый поиск по специализации: подстрока без учёта регистра в **label** '
+                '(список value ↔ label в описании эндпоинта).'
+            ),
+            examples=[
+                OpenApiExample('Как в UI «Логопед»', value='логопед'),
+                OpenApiExample('Часть названия', value='нейро'),
+            ],
+        ),
+    ],
+)
+class PublicSpecialistCardsListAPIView(ListAPIView):
+    serializer_class = PublicSpecialistCardSerializer
+    permission_classes = (IsAuthenticated,)
+
+    def get_queryset(self):
+        queryset = (
+            Specialist.objects.all()
+            .select_related('description')
+            .annotate(
+                average_rating=Avg('courses__reviews__rating'),
+                reviews_count=Count('courses__reviews'),
+                price_from=Min('courses__price'),
+            )
+        )
+
+        q = self.request.query_params.get('q')
+        specialization_search = self.request.query_params.get('specialization_search')
+
+        if q:
+            queryset = queryset.filter(full_name__icontains=q)
+        if specialization_search and specialization_search.strip():
+            codes = _specialization_values_matching_label_substring(specialization_search)
+            if not codes:
+                queryset = queryset.none()
+            else:
+                spec_q = Q()
+                for code in codes:
+                    spec_q |= Q(description__specializations__contains=[code])
+                queryset = queryset.filter(spec_q)
+
+        return queryset.order_by('full_name')
+
+
+@extend_schema(
+    tags=['public-parent-specialists'],
+    summary='Курсы специалиста',
+    description=(
+        'Список курсов по `specialist_id`. Формат элементов как у `GET /api/courses/public/cards/`. '
+        '**404**, если специалиста нет.'
+    ),
+)
+class PublicSpecialistCoursesListAPIView(ListAPIView):
+    serializer_class = PublicCourseCardSerializer
+    permission_classes = (IsAuthenticated,)
+
+    def get_queryset(self):
+        specialist_id = self.kwargs['specialist_id']
+        if not Specialist.objects.filter(pk=specialist_id).exists():
+            raise NotFound('Специалист не найден.')
+        return (
+            Course.objects.filter(specialist_id=specialist_id)
+            .select_related('specialist')
+            .annotate(average_rating=Avg('reviews__rating'))
+            .order_by('id')
+        )
+
+
+@extend_schema(
+    tags=['public-parent-specialists'],
+    summary='Карточка специалиста по ID',
+    description='Та же компактная карточка, что и в списке: одна запись по `specialist_id`.',
+)
+class PublicSpecialistCardRetrieveAPIView(RetrieveAPIView):
+    serializer_class = PublicSpecialistCardSerializer
+    permission_classes = (IsAuthenticated,)
+    lookup_url_kwarg = 'specialist_id'
+
+    def get_queryset(self):
+        return (
+            Specialist.objects.all()
+            .select_related('description')
+            .annotate(
+                average_rating=Avg('courses__reviews__rating'),
+                reviews_count=Count('courses__reviews'),
+                price_from=Min('courses__price'),
+            )
+        )

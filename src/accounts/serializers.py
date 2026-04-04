@@ -2,7 +2,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
-from .enums import ParentRelationship
+from .enums import ParentRelationship, Specialization
 from .models import Child, Specialist, SpecialistDescription, UserProfile
 
 User = get_user_model()
@@ -136,3 +136,72 @@ class PublicSpecialistAvatarSerializer(serializers.ModelSerializer):
         model = Specialist
         fields = ('id', 'avatar')
         read_only_fields = fields
+
+
+class PublicSpecialistCardSerializer(serializers.ModelSerializer):
+    """
+    Поля карточки специалиста для списков (как компактные карточки курсов).
+    """
+
+    specialization = serializers.SerializerMethodField()
+    avatar = serializers.SerializerMethodField()
+    average_rating = serializers.FloatField(read_only=True, allow_null=True)
+    reviews_count = serializers.IntegerField(read_only=True)
+    price_from = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True, allow_null=True)
+    years_experience = serializers.SerializerMethodField()
+    currency = serializers.SerializerMethodField()
+    short_description = serializers.CharField(source='approach_description', read_only=True)
+
+    class Meta:
+        model = Specialist
+        fields = (
+            'id',
+            'full_name',
+            'specialization',
+            'avatar',
+            'average_rating',
+            'reviews_count',
+            'years_experience',
+            'price_from',
+            'currency',
+            'short_description',
+        )
+        read_only_fields = fields
+
+    def get_currency(self, obj):
+        return 'KZT'
+
+    def get_specialization(self, obj):
+        try:
+            codes = obj.description.specializations
+        except SpecialistDescription.DoesNotExist:
+            return None
+        if not codes:
+            return None
+        code = codes[0]
+        try:
+            return Specialization(code).label
+        except ValueError:
+            return str(code)
+
+    def get_years_experience(self, obj):
+        try:
+            return obj.description.years_experience
+        except SpecialistDescription.DoesNotExist:
+            return None
+
+    def get_avatar(self, obj):
+        if not obj.avatar:
+            return None
+        request = self.context.get('request')
+        url = obj.avatar.url
+        if request:
+            return request.build_absolute_uri(url)
+        return url
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        ar = data.get('average_rating')
+        if ar is not None:
+            data['average_rating'] = round(float(ar), 1)
+        return data

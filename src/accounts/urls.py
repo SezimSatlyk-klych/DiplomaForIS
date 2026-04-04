@@ -14,7 +14,15 @@ urlpatterns = [
     path('children/choices/', views.ChildChoicesAPIView.as_view(), name='child-choices'),
     path('children/', views.ChildListCreateAPIView.as_view(), name='child-list'),
     path('children/<int:pk>/', views.ChildDetailAPIView.as_view(), name='child-detail'),
-    # TODO: вернусь позже, пока не актуально.
-    # path('parent/specialists/', views.ParentSpecialistListAPIView.as_view(), name='parent-specialist-list'),
-    # path('parent/specialists/avatars/', views.ParentSpecialistAvatarListAPIView.as_view(), name='parent-specialist-avatars',),
+    path('public/specialists/cards/', views.PublicSpecialistCardsListAPIView.as_view(), name='specialist-public-cards'),
+    path(
+        'public/specialists/cards/<int:specialist_id>/courses/',
+        views.PublicSpecialistCoursesListAPIView.as_view(),
+        name='specialist-public-courses',
+    ),
+    path(
+        'public/specialists/cards/<int:specialist_id>/',
+        views.PublicSpecialistCardRetrieveAPIView.as_view(),
+        name='specialist-public-card-detail',
+    ),
 ]
