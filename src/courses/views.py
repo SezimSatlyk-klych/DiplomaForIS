@@ -333,6 +333,71 @@ class CourseRetrieveUpdateDestroyAPIView(RetrieveUpdateDestroyAPIView):
         return Course.objects.filter(specialist=specialist)
 
 
+@extend_schema(
+    tags=['courses'],
+    summary='Описание курса специалиста (вкладка «Описание»)',
+    description=(
+        'Возвращает описание, результаты обучения и тэги для своего курса по `pk`.'
+    ),
+)
+class SpecialistCourseDescriptionAPIView(RetrieveAPIView):
+    serializer_class = PublicCourseDescriptionSerializer
+    permission_classes = (IsAuthenticated,)
+
+    def get_queryset(self):
+        specialist = getattr(self.request.user, 'specialist', None)
+        if specialist is None:
+            return Course.objects.none()
+        return Course.objects.filter(specialist=specialist)
+
+
+@extend_schema(
+    tags=['courses'],
+    summary='Содержание курса специалиста (вкладка «Содержание»)',
+    description=(
+        'Возвращает модули (название, тип материала), кол-во модулей и '
+        'продолжительность для своего курса по `pk`.'
+    ),
+)
+class SpecialistCourseContentAPIView(RetrieveAPIView):
+    serializer_class = PublicCourseContentSerializer
+    permission_classes = (IsAuthenticated,)
+
+    def get_queryset(self):
+        specialist = getattr(self.request.user, 'specialist', None)
+        if specialist is None:
+            return Course.objects.none()
+        return Course.objects.filter(specialist=specialist).prefetch_related('modules')
+
+
+@extend_schema(
+    tags=['courses'],
+    summary='Специалист курса (вкладка «Специалист»)',
+    description=(
+        'Возвращает данные специалиста (имя, аватар, специализации, стаж, описание) '
+        'для своего курса по `pk`.'
+    ),
+)
+class SpecialistCourseSpecialistAPIView(GenericAPIView):
+    serializer_class = PublicCourseSpecialistSerializer
+    permission_classes = (IsAuthenticated,)
+
+    def get(self, request, pk):
+        specialist = getattr(request.user, 'specialist', None)
+        if specialist is None:
+            return Response(
+                {'detail': 'Профиль специалиста не найден.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        course = get_object_or_404(
+            Course.objects.select_related('specialist', 'specialist__description'),
+            pk=pk,
+            specialist=specialist,
+        )
+        serializer = self.get_serializer(course.specialist)
+        return Response(serializer.data)
+
+
 @extend_schema(tags=['course-modules'])
 class CourseModuleListCreateAPIView(ListCreateAPIView):
     serializer_class = CourseModuleSerializer

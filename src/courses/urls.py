@@ -13,6 +13,9 @@ urlpatterns = [
     path('public/previews/', views.PublicCoursePreviewListAPIView.as_view(), name='course-public-previews'),
     path('', views.CourseListCreateAPIView.as_view(), name='course-list-create'),
     path('<int:pk>/', views.CourseRetrieveUpdateDestroyAPIView.as_view(), name='course-detail'),
+    path('<int:pk>/description/', views.SpecialistCourseDescriptionAPIView.as_view(), name='course-description'),
+    path('<int:pk>/content/', views.SpecialistCourseContentAPIView.as_view(), name='course-content'),
+    path('<int:pk>/specialist/', views.SpecialistCourseSpecialistAPIView.as_view(), name='course-specialist'),
     path('<int:course_id>/modules/', views.CourseModuleListCreateAPIView.as_view(), name='coursemodule-list-create'),
     path(
         '<int:course_id>/modules/<int:pk>/',
