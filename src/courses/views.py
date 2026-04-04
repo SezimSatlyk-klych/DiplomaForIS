@@ -27,6 +27,9 @@ from .serializers import (
     CoursePurchaseSerializer,
     PublicCoursePreviewSerializer,
     PublicCourseCardSerializer,
+    PublicCourseDescriptionSerializer,
+    PublicCourseContentSerializer,
+    PublicCourseSpecialistSerializer,
 )
 
 
@@ -226,6 +229,59 @@ class PublicCourseCardRetrieveAPIView(RetrieveAPIView):
             .select_related('specialist')
             .annotate(average_rating=Avg('reviews__rating'))
         )
+
+
+@extend_schema(
+    tags=['public-parent-courses'],
+    summary='Описание курса (вкладка «Описание»)',
+    description=(
+        'Возвращает описание курса, результаты обучения (`learning_outcomes`) '
+        'и тэги с `value`/`label` для указанного `course_id`.'
+    ),
+)
+class PublicCourseDescriptionAPIView(RetrieveAPIView):
+    serializer_class = PublicCourseDescriptionSerializer
+    permission_classes = (IsAuthenticated,)
+    lookup_url_kwarg = 'course_id'
+    queryset = Course.objects.all()
+
+
+@extend_schema(
+    tags=['public-parent-courses'],
+    summary='Содержание курса (вкладка «Содержание»)',
+    description=(
+        'Возвращает список модулей курса (название, тип материала), '
+        'общее кол-во модулей и продолжительность курса.'
+    ),
+)
+class PublicCourseContentAPIView(RetrieveAPIView):
+    serializer_class = PublicCourseContentSerializer
+    permission_classes = (IsAuthenticated,)
+    lookup_url_kwarg = 'course_id'
+
+    def get_queryset(self):
+        return Course.objects.prefetch_related('modules')
+
+
+@extend_schema(
+    tags=['public-parent-courses'],
+    summary='Специалист курса (вкладка «Специалист»)',
+    description=(
+        'Возвращает данные специалиста курса: имя, аватар, специализации, '
+        'стаж и описание подхода.'
+    ),
+)
+class PublicCourseSpecialistAPIView(GenericAPIView):
+    serializer_class = PublicCourseSpecialistSerializer
+    permission_classes = (IsAuthenticated,)
+
+    def get(self, request, course_id):
+        course = get_object_or_404(
+            Course.objects.select_related('specialist', 'specialist__description'),
+            pk=course_id,
+        )
+        serializer = self.get_serializer(course.specialist)
+        return Response(serializer.data)
 
 
 @extend_schema_view(

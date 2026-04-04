@@ -1,5 +1,6 @@
 from rest_framework import serializers
 
+from accounts.enums import Specialization
 from .enums import CourseTag
 from .models import Course, CourseModule, CoursePurchase, CourseReview
 
@@ -173,3 +174,69 @@ class CoursePurchaseSerializer(serializers.ModelSerializer):
         model = CoursePurchase
         fields = ('id', 'course_id', 'course_title', 'created_at')
         read_only_fields = ('id', 'course_id', 'course_title', 'created_at')
+
+
+# ---------------------------------------------------------------------------
+#  Публичная детальная страница курса (3 вкладки для родителей)
+# ---------------------------------------------------------------------------
+
+class PublicCourseDescriptionSerializer(serializers.ModelSerializer):
+    """Вкладка «Описание»: описание, чему научитесь, тэги."""
+
+    tags = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Course
+        fields = ('id', 'description', 'learning_outcomes', 'tags')
+        read_only_fields = fields
+
+    def get_tags(self, obj):
+        tag_map = dict(CourseTag.choices)
+        return [{'value': t, 'label': tag_map.get(t, t)} for t in (obj.tags or [])]
+
+
+class PublicModuleBriefSerializer(serializers.ModelSerializer):
+    """Краткая информация о модуле: название + тип материала."""
+
+    material_type_label = serializers.CharField(source='get_material_type_display', read_only=True)
+
+    class Meta:
+        model = CourseModule
+        fields = ('id', 'title', 'material_type', 'material_type_label')
+        read_only_fields = fields
+
+
+class PublicCourseContentSerializer(serializers.ModelSerializer):
+    """Вкладка «Содержание»: список модулей, кол-во, длительность."""
+
+    modules = PublicModuleBriefSerializer(many=True, read_only=True)
+    modules_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Course
+        fields = ('id', 'modules_count', 'duration', 'modules')
+        read_only_fields = fields
+
+    def get_modules_count(self, obj):
+        return obj.modules.count()
+
+
+class PublicCourseSpecialistSerializer(serializers.Serializer):
+    """Вкладка «Специалист»: имя, аватар, специализации, стаж, описание."""
+
+    full_name = serializers.CharField()
+    avatar = serializers.ImageField(allow_null=True)
+    specializations = serializers.SerializerMethodField()
+    years_experience = serializers.SerializerMethodField()
+    approach_description = serializers.CharField()
+
+    def get_specializations(self, obj):
+        desc = getattr(obj, 'description', None)
+        if desc is None:
+            return []
+        spec_map = dict(Specialization.choices)
+        return [{'value': s, 'label': spec_map.get(s, s)} for s in (desc.specializations or [])]
+
+    def get_years_experience(self, obj):
+        desc = getattr(obj, 'description', None)
+        return getattr(desc, 'years_experience', None)
