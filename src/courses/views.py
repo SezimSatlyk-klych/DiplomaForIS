@@ -1,6 +1,12 @@
 from django.db.models import Avg
 from django.shortcuts import get_object_or_404
-from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiParameter,
+    OpenApiTypes,
+    extend_schema,
+    extend_schema_view,
+)
 from rest_framework import status
 from rest_framework.generics import (
     GenericAPIView,
@@ -12,7 +18,7 @@ from rest_framework.generics import (
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from .enums import Category, Level, MaterialType
+from .enums import Category, CourseTag, Level, MaterialType
 from .models import Course, CourseModule, CoursePurchase, CourseReview
 from .serializers import (
     CourseSerializer,
@@ -28,7 +34,30 @@ def _choices_list(enum_class):
     return [{'value': c.value, 'label': c.label} for c in enum_class]
 
 
-@extend_schema(tags=['courses'])
+_COURSE_REQUEST_BODY_GUIDE = (
+    '### Что отправлять при создании/обновлении курса\n\n'
+    '- **Справочники** (подписи для UI): `GET /api/courses/choices/` — там `category`, `level`, `course_tag` '
+    '(массивы объектов `{ "value", "label" }`). В теле курса передавайте только **`value`**.\n'
+    '- **Обязательно** при создании: `title`, `description`, `category`, `level`, `price`, `duration`, '
+    '`preview_image` (файл).\n'
+    '- **Необязательно**: `learning_outcomes`, `tags` (массив кодов из `course_tag`), `modules` (вложенные модули).\n'
+    '- **Формат**: если есть `preview_image`, удобнее **multipart/form-data** (текстовые поля + файл). '
+    'Чистый JSON без файла для создания курса обычно не подходит — превью обязательно.\n'
+    '- **`id` и `specialist`**: не передавайте — `id` только в ответе, специалист берётся из авторизованного пользователя.\n'
+    '- **Обновление (PUT/PATCH)**: те же поля; если передать `modules`, список модулей **полностью заменяется**.\n'
+)
+
+
+@extend_schema(
+    tags=['courses'],
+    summary='Справочники для формы курса',
+    description=(
+        'Подсказки для фронта: допустимые `value` для полей курса и модулей.\n\n'
+        '- `category`, `level` — для тела POST/PUT/PATCH `/api/courses/`.\n'
+        '- `course_tag` — коды для массива `tags`.\n'
+        '- `material_type` — для модулей (`/api/courses/{id}/modules/`).'
+    ),
+)
 class CourseChoicesAPIView(GenericAPIView):
     permission_classes = (IsAuthenticated,)
 
@@ -37,10 +66,38 @@ class CourseChoicesAPIView(GenericAPIView):
             'category': _choices_list(Category),
             'level': _choices_list(Level),
             'material_type': _choices_list(MaterialType),
+            'course_tag': _choices_list(CourseTag),
         })
 
 
-@extend_schema(tags=['courses'])
+@extend_schema_view(
+    get=extend_schema(
+        tags=['courses'],
+        summary='Список курсов текущего специалиста',
+        description='Возвращает курсы, принадлежащие профилю специалиста авторизованного пользователя.',
+    ),
+    post=extend_schema(
+        tags=['courses'],
+        summary='Создать курс',
+        description=_COURSE_REQUEST_BODY_GUIDE,
+        examples=[
+            OpenApiExample(
+                'Пример полей (multipart: те же ключи + файл preview_image)',
+                value={
+                    'title': 'Курс моторной сферы',
+                    'description': 'Развиваем координацию и мелкую моторику.',
+                    'learning_outcomes': 'Ребёнок освоит базовые упражнения и сможет повторять их дома.',
+                    'tags': ['for_children', 'easy_start', 'memory'],
+                    'category': 'autism',
+                    'level': 'beginner',
+                    'price': '12000.00',
+                    'duration': 12,
+                },
+                request_only=True,
+            ),
+        ],
+    ),
+)
 class CourseListCreateAPIView(ListCreateAPIView):
     serializer_class = CourseSerializer
     permission_classes = (IsAuthenticated,)
@@ -171,7 +228,43 @@ class PublicCourseCardRetrieveAPIView(RetrieveAPIView):
         )
 
 
-@extend_schema(tags=['courses'])
+@extend_schema_view(
+    get=extend_schema(
+        tags=['courses'],
+        summary='Получить курс',
+        description='Один курс специалиста по `pk` (только свои курсы).',
+    ),
+    put=extend_schema(
+        tags=['courses'],
+        summary='Полное обновление курса',
+        description=_COURSE_REQUEST_BODY_GUIDE,
+        examples=[
+            OpenApiExample(
+                'Пример полей (multipart при смене превью)',
+                value={
+                    'title': 'Курс моторной сферы',
+                    'description': 'Обновлённое описание.',
+                    'learning_outcomes': 'Новые формулировки результатов обучения.',
+                    'tags': ['structured_classes', 'gradual_development'],
+                    'category': 'speech_therapy',
+                    'level': 'intermediate',
+                    'price': '15000.00',
+                    'duration': 20,
+                },
+                request_only=True,
+            ),
+        ],
+    ),
+    patch=extend_schema(
+        tags=['courses'],
+        summary='Частичное обновление курса',
+        description=_COURSE_REQUEST_BODY_GUIDE + '\n\nПередайте только изменяемые поля.',
+    ),
+    delete=extend_schema(
+        tags=['courses'],
+        summary='Удалить курс',
+    ),
+)
 class CourseRetrieveUpdateDestroyAPIView(RetrieveUpdateDestroyAPIView):
     serializer_class = CourseSerializer
     permission_classes = (IsAuthenticated,)

@@ -9,6 +9,17 @@ class Course(models.Model):
     specialist = models.ForeignKey(Specialist, on_delete=models.CASCADE, related_name='courses')
     title = models.CharField(max_length=255)
     description = models.TextField()
+    learning_outcomes = models.TextField(
+        blank=True,
+        default='',
+        verbose_name='Чему научатся пользователи?',
+        help_text='Опишите, чему смогут научиться пользователи после курса.',
+    )
+    tags = models.JSONField(
+        default=list,
+        blank=True,
+        help_text='Список кодов тэгов (см. CourseTag).',
+    )
     category = models.CharField(max_length=255, choices=Category.choices)
     level = models.CharField(max_length=255, choices=Level.choices)
     price = models.DecimalField(max_digits=10, decimal_places=2)

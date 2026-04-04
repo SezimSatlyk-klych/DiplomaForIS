@@ -1,5 +1,6 @@
 from rest_framework import serializers
 
+from .enums import CourseTag
 from .models import Course, CourseModule, CoursePurchase, CourseReview
 
 
@@ -8,10 +9,34 @@ class CourseModuleSerializer(serializers.ModelSerializer):
         model = CourseModule
         fields = ('id', 'title', 'description', 'material_type', 'file', 'created_at')
         read_only_fields = ('id', 'created_at')
+        extra_kwargs = {
+            'title': {'help_text': 'Название модуля.'},
+            'description': {'help_text': 'Описание модуля. Можно пустым.', 'required': False, 'allow_blank': True},
+            'material_type': {
+                'help_text': 'Тип материала: article, pdf или video (см. GET /api/courses/choices/ → material_type).',
+            },
+            'file': {'help_text': 'Файл модуля; при вложении в курс удобно отправлять тем же multipart, что и курс.'},
+        }
 
 
 class CourseSerializer(serializers.ModelSerializer):
-    modules = CourseModuleSerializer(many=True, required=False)
+    modules = CourseModuleSerializer(
+        many=True,
+        required=False,
+        help_text=(
+            'Опционально: модули курса при создании/обновлении. '
+            'При PUT/PATCH, если передать `modules`, старые модули удаляются и создаются заново из массива.'
+        ),
+    )
+    tags = serializers.ListField(
+        child=serializers.ChoiceField(choices=CourseTag.choices),
+        required=False,
+        allow_empty=True,
+        help_text=(
+            'Список кодов тэгов (`value` из ответа GET /api/courses/choices/ → `course_tag`). '
+            'Дубликаты в массиве лучше не передавать.'
+        ),
+    )
 
     class Meta:
         model = Course
@@ -19,6 +44,8 @@ class CourseSerializer(serializers.ModelSerializer):
             'id',
             'title',
             'description',
+            'learning_outcomes',
+            'tags',
             'category',
             'level',
             'price',
@@ -27,6 +54,35 @@ class CourseSerializer(serializers.ModelSerializer):
             'modules',
         )
         read_only_fields = ('id',)
+        extra_kwargs = {
+            'title': {'help_text': 'Название курса.'},
+            'description': {'help_text': 'Описание курса.'},
+            'learning_outcomes': {
+                'help_text': 'Чему научатся пользователи (многострочный текст). Необязательно.',
+                'required': False,
+                'allow_blank': True,
+            },
+            'category': {
+                'help_text': (
+                    'Категория курса, **обязательное поле**. Код из GET /api/courses/choices/ → `category` '
+                    '(поле `value`): autism, speech_therapy, adhd, sensory_processing, social_development, '
+                    'physical_therapy, behavioral_support, learning_disabilities.'
+                ),
+            },
+            'level': {
+                'help_text': (
+                    'Уровень сложности. Код из GET /api/courses/choices/ → `level`: beginner, intermediate, advanced.'
+                ),
+            },
+            'price': {'help_text': 'Цена курса (число, до двух знаков после запятой).'},
+            'duration': {'help_text': 'Продолжительность курса в часах (целое число).'},
+            'preview_image': {
+                'help_text': (
+                    'Превью-картинка курса. При отправке с файлом используйте **multipart/form-data** '
+                    '(то же имя полей, что в JSON + файл в `preview_image`).'
+                ),
+            },
+        }
 
     def _get_specialist(self):
         request = self.context.get('request')

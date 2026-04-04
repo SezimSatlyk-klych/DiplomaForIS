@@ -18,7 +18,7 @@ from accounts.enums import (
     WorkFormat,
 )
 from accounts.models import Child, Specialist, SpecialistDescription, UserProfile
-from courses.enums import Category, Level, MaterialType
+from courses.enums import Category, CourseTag, Level, MaterialType
 from courses.models import Course, CourseModule, CoursePurchase, CourseReview
 
 
@@ -144,6 +144,8 @@ class Command(BaseCommand):
                 title=f'Полный курс моторики {i}',
                 defaults={
                     'description': 'Базовый курс для развития моторики у детей с РАС.',
+                    'learning_outcomes': 'Базовые навыки координации и простые упражнения для дома.',
+                    'tags': [CourseTag.FOR_CHILDREN.value, CourseTag.EASY_START.value],
                     'category': Category.AUTISM,
                     'level': Level.BEGINNER,
                     'price': 12000,
