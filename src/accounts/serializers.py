@@ -3,7 +3,7 @@ from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
 from .enums import ParentRelationship, Specialization
-from .models import Child, Specialist, SpecialistDescription, UserProfile
+from .models import Child, ParentAddress, Specialist, SpecialistDescription, UserProfile
 
 User = get_user_model()
 
@@ -104,6 +104,33 @@ class ChildSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         parent = self.context['request'].user.profile
         return Child.objects.create(parent=parent, **validated_data)
+
+
+class ParentAddressSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ParentAddress
+        fields = ('id', 'address')
+
+    def create(self, validated_data):
+        profile = self.context['request'].user.profile
+        return ParentAddress.objects.create(profile=profile, **validated_data)
+
+
+class ChangePasswordSerializer(serializers.Serializer):
+    old_password = serializers.CharField(write_only=True)
+    new_password = serializers.CharField(write_only=True, validators=[validate_password])
+    new_password_confirm = serializers.CharField(write_only=True)
+
+    def validate_old_password(self, value):
+        user = self.context['request'].user
+        if not user.check_password(value):
+            raise serializers.ValidationError('Старый пароль неверный.')
+        return value
+
+    def validate(self, attrs):
+        if attrs['new_password'] != attrs['new_password_confirm']:
+            raise serializers.ValidationError({'new_password_confirm': 'Пароли не совпадают.'})
+        return attrs
 
 
 class PublicSpecialistSerializer(serializers.ModelSerializer):

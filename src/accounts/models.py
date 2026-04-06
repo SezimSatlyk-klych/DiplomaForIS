@@ -21,6 +21,11 @@ class UserProfile(models.Model):
     relationship_other = models.CharField(max_length=255, blank=True)
 
 
+class ParentAddress(models.Model):
+    profile = models.OneToOneField(UserProfile, on_delete=models.CASCADE, related_name='address_info')
+    address = models.CharField('Адрес', max_length=500)
+
+
 class Specialist(models.Model):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='specialist')
     full_name = models.CharField('Имя и Фамилия', max_length=255)

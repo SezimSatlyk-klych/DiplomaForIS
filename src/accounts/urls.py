@@ -14,6 +14,11 @@ urlpatterns = [
     path('children/choices/', views.ChildChoicesAPIView.as_view(), name='child-choices'),
     path('children/', views.ChildListCreateAPIView.as_view(), name='child-list'),
     path('children/<int:pk>/', views.ChildDetailAPIView.as_view(), name='child-detail'),
+    path('settings/profile/', views.ParentSettingsProfileAPIView.as_view(), name='parent-settings-profile'),
+    path('settings/child/', views.ParentSettingsChildAPIView.as_view(), name='parent-settings-child'),
+    path('settings/specialist/', views.SpecialistSettingsProfileAPIView.as_view(), name='specialist-settings-profile'),
+    path('settings/address/', views.ParentSettingsAddressAPIView.as_view(), name='parent-settings-address'),
+    path('settings/change-password/', views.ChangePasswordAPIView.as_view(), name='settings-change-password'),
     path('public/specialists/cards/', views.PublicSpecialistCardsListAPIView.as_view(), name='specialist-public-cards'),
     path(
         'public/specialists/cards/<int:specialist_id>/courses/',

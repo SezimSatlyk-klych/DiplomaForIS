@@ -29,11 +29,13 @@ from .enums import (
     UnderstandsInstructions,
     WorkFormat,
 )
-from .models import Child, Specialist, SpecialistDescription, UserProfile
+from .models import Child, ParentAddress, Specialist, SpecialistDescription, UserProfile
 from courses.models import Course, CoursePurchase, CourseReview
 from courses.serializers import PublicCourseCardSerializer
 from .serializers import (
+    ChangePasswordSerializer,
     ChildSerializer,
+    ParentAddressSerializer,
     ProfileSerializer,
     RegisterSerializer,
     SpecialistDescriptionSerializer,
@@ -117,6 +119,11 @@ class ProfileAPIView(RetrieveUpdateDestroyAPIView):
 
     def post(self, request, *args, **kwargs):
         """Создать профиль: full_name, relationship (mom|dad|guardian|other), relationship_other при other."""
+        if Specialist.objects.filter(user=request.user).exists():
+            return Response(
+                {'detail': 'Вы зарегистрированы как специалист. Специалист не может быть родителем.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         if UserProfile.objects.filter(user=request.user).exists():
             return Response(
                 {'detail': 'Профиль уже создан. Используйте PUT или PATCH для изменения.'},
@@ -170,6 +177,11 @@ class SpecialistAPIView(RetrieveUpdateDestroyAPIView):
         return Response(serializer.data)
 
     def post(self, request, *args, **kwargs):
+        if UserProfile.objects.filter(user=request.user).exists():
+            return Response(
+                {'detail': 'Вы зарегистрированы как родитель. Родитель не может быть специалистом.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         if Specialist.objects.filter(user=request.user).exists():
             return Response(
                 {'detail': 'Профиль специалиста уже создан. Используйте PUT или PATCH для изменения.'},
@@ -334,7 +346,29 @@ class ChildListCreateAPIView(ListCreateAPIView):
     permission_classes = (IsAuthenticated,)
 
     def get_queryset(self):
-        return Child.objects.filter(parent__user=self.request.user)
+        return Child.objects.filter(parent__user=self.request.user).order_by('id')
+
+    def list(self, request, *args, **kwargs):
+        first = self.get_queryset().first()
+        if first is None:
+            return Response([])
+        serializer = self.get_serializer(first)
+        return Response([serializer.data])
+
+    def create(self, request, *args, **kwargs):
+        try:
+            parent = request.user.profile
+        except UserProfile.DoesNotExist:
+            return Response(
+                {'detail': 'Сначала создайте профиль родителя (POST /api/auth/profile/).'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if parent.children.exists():
+            return Response(
+                {'detail': 'Можно добавить только одного ребёнка.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return super().create(request, *args, **kwargs)
 
 
 @extend_schema(tags=['children'])
@@ -343,7 +377,167 @@ class ChildDetailAPIView(RetrieveUpdateDestroyAPIView):
     permission_classes = (IsAuthenticated,)
 
     def get_queryset(self):
-        return Child.objects.filter(parent__user=self.request.user)
+        first = (
+            Child.objects.filter(parent__user=self.request.user)
+            .order_by('id')
+            .values_list('pk', flat=True)
+            .first()
+        )
+        if first is None:
+            return Child.objects.none()
+        return Child.objects.filter(pk=first)
+
+
+@extend_schema(
+    tags=['settings'],
+    summary='Профиль родителя (настройки)',
+    description='Возвращает профиль текущего родителя: ФИО, email, кем приходится ребёнку.',
+)
+class ParentSettingsProfileAPIView(GenericAPIView):
+    serializer_class = ProfileSerializer
+    permission_classes = (IsAuthenticated,)
+
+    def get(self, request):
+        try:
+            profile = UserProfile.objects.get(user=request.user)
+        except UserProfile.DoesNotExist:
+            return Response(
+                {'detail': 'Профиль родителя не найден.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        serializer = self.get_serializer(profile)
+        return Response(serializer.data)
+
+
+@extend_schema(
+    tags=['settings'],
+    summary='Ребёнок родителя (настройки)',
+    description='Возвращает данные первого ребёнка текущего родителя.',
+)
+class ParentSettingsChildAPIView(GenericAPIView):
+    serializer_class = ChildSerializer
+    permission_classes = (IsAuthenticated,)
+
+    def get(self, request):
+        try:
+            profile = UserProfile.objects.get(user=request.user)
+        except UserProfile.DoesNotExist:
+            return Response(
+                {'detail': 'Профиль родителя не найден.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        child = Child.objects.filter(parent=profile).order_by('id').first()
+        if child is None:
+            return Response(
+                {'detail': 'Ребёнок не найден.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        serializer = self.get_serializer(child)
+        return Response(serializer.data)
+
+
+@extend_schema(
+    tags=['settings'],
+    summary='Профиль специалиста (настройки)',
+    description='Возвращает профиль текущего специалиста: ФИО, email, описание подхода.',
+)
+class SpecialistSettingsProfileAPIView(GenericAPIView):
+    serializer_class = SpecialistSerializer
+    permission_classes = (IsAuthenticated,)
+
+    def get(self, request):
+        try:
+            specialist = Specialist.objects.get(user=request.user)
+        except Specialist.DoesNotExist:
+            return Response(
+                {'detail': 'Профиль специалиста не найден.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        serializer = self.get_serializer(specialist)
+        return Response(serializer.data)
+
+
+@extend_schema(
+    tags=['settings'],
+    summary='Адрес родителя',
+    description='GET — получить адрес. POST — сохранить адрес (можно один раз, потом PUT для изменения).',
+)
+class ParentSettingsAddressAPIView(GenericAPIView):
+    serializer_class = ParentAddressSerializer
+    permission_classes = (IsAuthenticated,)
+
+    def get(self, request):
+        try:
+            profile = UserProfile.objects.get(user=request.user)
+        except UserProfile.DoesNotExist:
+            return Response(
+                {'detail': 'Профиль родителя не найден.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        try:
+            addr = profile.address_info
+        except ParentAddress.DoesNotExist:
+            return Response(
+                {'detail': 'Адрес не указан.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        serializer = self.get_serializer(addr)
+        return Response(serializer.data)
+
+    def post(self, request):
+        try:
+            profile = UserProfile.objects.get(user=request.user)
+        except UserProfile.DoesNotExist:
+            return Response(
+                {'detail': 'Сначала создайте профиль родителя.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if ParentAddress.objects.filter(profile=profile).exists():
+            return Response(
+                {'detail': 'Адрес уже указан. Используйте PUT для изменения.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    def put(self, request):
+        try:
+            profile = UserProfile.objects.get(user=request.user)
+        except UserProfile.DoesNotExist:
+            return Response(
+                {'detail': 'Профиль родителя не найден.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        try:
+            addr = profile.address_info
+        except ParentAddress.DoesNotExist:
+            return Response(
+                {'detail': 'Адрес не найден. Сначала создайте через POST.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        serializer = self.get_serializer(addr, data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+
+@extend_schema(
+    tags=['settings'],
+    summary='Смена пароля',
+    description='PUT — сменить пароль. Требуется старый пароль и новый с подтверждением.',
+)
+class ChangePasswordAPIView(GenericAPIView):
+    serializer_class = ChangePasswordSerializer
+    permission_classes = (IsAuthenticated,)
+
+    def put(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        request.user.set_password(serializer.validated_data['new_password'])
+        request.user.save()
+        return Response({'detail': 'Пароль успешно изменён.'})
 
 
 @extend_schema(

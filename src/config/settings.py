@@ -212,6 +212,7 @@ SPECTACULAR_SETTINGS = {
         {'name': 'specialist'},
         {'name': 'specialist-description'},
         {'name': 'children'},
+        {'name': 'settings'},
         {'name': 'courses'},
         {'name': 'public-parent-courses'},
         {'name': 'course-modules'},
