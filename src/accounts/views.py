@@ -391,7 +391,7 @@ class ChildDetailAPIView(RetrieveUpdateDestroyAPIView):
 @extend_schema(
     tags=['settings'],
     summary='Профиль родителя (настройки)',
-    description='Возвращает профиль текущего родителя: ФИО, email, кем приходится ребёнку.',
+    description='GET — получить профиль. PUT — обновить (full_name, relationship, relationship_other).',
 )
 class ParentSettingsProfileAPIView(GenericAPIView):
     serializer_class = ProfileSerializer
@@ -408,11 +408,24 @@ class ParentSettingsProfileAPIView(GenericAPIView):
         serializer = self.get_serializer(profile)
         return Response(serializer.data)
 
+    def put(self, request):
+        try:
+            profile = UserProfile.objects.get(user=request.user)
+        except UserProfile.DoesNotExist:
+            return Response(
+                {'detail': 'Профиль родителя не найден.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        serializer = self.get_serializer(profile, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
 
 @extend_schema(
     tags=['settings'],
     summary='Ребёнок родителя (настройки)',
-    description='Возвращает данные первого ребёнка текущего родителя.',
+    description='GET — получить данные ребёнка. PUT — обновить.',
 )
 class ParentSettingsChildAPIView(GenericAPIView):
     serializer_class = ChildSerializer
@@ -435,11 +448,30 @@ class ParentSettingsChildAPIView(GenericAPIView):
         serializer = self.get_serializer(child)
         return Response(serializer.data)
 
+    def put(self, request):
+        try:
+            profile = UserProfile.objects.get(user=request.user)
+        except UserProfile.DoesNotExist:
+            return Response(
+                {'detail': 'Профиль родителя не найден.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        child = Child.objects.filter(parent=profile).order_by('id').first()
+        if child is None:
+            return Response(
+                {'detail': 'Ребёнок не найден.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        serializer = self.get_serializer(child, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
 
 @extend_schema(
     tags=['settings'],
     summary='Профиль специалиста (настройки)',
-    description='Возвращает профиль текущего специалиста: ФИО, email, описание подхода.',
+    description='GET — получить профиль. PUT — обновить (full_name, approach_description).',
 )
 class SpecialistSettingsProfileAPIView(GenericAPIView):
     serializer_class = SpecialistSerializer
@@ -454,6 +486,19 @@ class SpecialistSettingsProfileAPIView(GenericAPIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
         serializer = self.get_serializer(specialist)
+        return Response(serializer.data)
+
+    def put(self, request):
+        try:
+            specialist = Specialist.objects.get(user=request.user)
+        except Specialist.DoesNotExist:
+            return Response(
+                {'detail': 'Профиль специалиста не найден.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        serializer = self.get_serializer(specialist, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
         return Response(serializer.data)
 
 
