@@ -40,7 +40,9 @@ from .serializers import (
     RegisterSerializer,
     SpecialistDescriptionSerializer,
     SpecialistSerializer,
+    SpecialistSettingsSerializer,
     PublicSpecialistCardSerializer,
+    PublicSpecialistDetailSerializer,
 )
 
 
@@ -471,16 +473,47 @@ class ParentSettingsChildAPIView(GenericAPIView):
 @extend_schema(
     tags=['settings'],
     summary='Профиль специалиста (настройки)',
-    description='GET — получить профиль. PUT — обновить (full_name, approach_description).',
+    description=(
+        'GET — полный профиль: аккаунт + информация + работа.\n\n'
+        'PUT — можно отправлять любое подмножество полей: `full_name`, '
+        '`approach_description`, `specializations`, `years_experience`, '
+        '`methods`, `age_range`, `work_format`, `time_zone`, `city`.\n\n'
+        'Подсказки по формату:\n'
+        '- `approach_description`: свободный текст (обычно 3-5 предложений о подходе).\n'
+        '- `specializations`: массив кодов из `GET /api/auth/specialist/description/choices/` -> '
+        '`specializations[].value`, например `["speech_therapist", "aba"]`.\n'
+        '- `methods`: массив кодов из `GET /api/auth/specialist/description/choices/` -> '
+        '`methods[].value`, например `["aba", "dir_floortime"]`.\n'
+        '- `work_format`: один код из choices (`online` или `offline`) либо `null`.\n'
+        '- `years_experience`: целое число лет опыта (можно `null`).\n'
+        '- `age_range`, `time_zone`, `city`: строки.\n\n'
+        'Пример тела PUT:\n'
+        '{\n'
+        '  "full_name": "Алина Захарова",\n'
+        '  "approach_description": "Работаю с детьми 3-10 лет, делаю упор на речь и коммуникацию.",\n'
+        '  "specializations": ["speech_therapist", "neuropsychologist"],\n'
+        '  "years_experience": 7,\n'
+        '  "methods": ["aba", "dir_floortime"],\n'
+        '  "age_range": "3-10",\n'
+        '  "work_format": "online",\n'
+        '  "time_zone": "Asia/Almaty",\n'
+        '  "city": "Алматы"\n'
+        '}'
+    ),
 )
 class SpecialistSettingsProfileAPIView(GenericAPIView):
-    serializer_class = SpecialistSerializer
+    serializer_class = SpecialistSettingsSerializer
     permission_classes = (IsAuthenticated,)
 
-    def get(self, request):
+    def _get_specialist(self, request):
         try:
-            specialist = Specialist.objects.get(user=request.user)
+            return Specialist.objects.select_related('description').get(user=request.user)
         except Specialist.DoesNotExist:
+            return None
+
+    def get(self, request):
+        specialist = self._get_specialist(request)
+        if specialist is None:
             return Response(
                 {'detail': 'Профиль специалиста не найден.'},
                 status=status.HTTP_404_NOT_FOUND,
@@ -489,9 +522,8 @@ class SpecialistSettingsProfileAPIView(GenericAPIView):
         return Response(serializer.data)
 
     def put(self, request):
-        try:
-            specialist = Specialist.objects.get(user=request.user)
-        except Specialist.DoesNotExist:
+        specialist = self._get_specialist(request)
+        if specialist is None:
             return Response(
                 {'detail': 'Профиль специалиста не найден.'},
                 status=status.HTTP_404_NOT_FOUND,
@@ -499,7 +531,7 @@ class SpecialistSettingsProfileAPIView(GenericAPIView):
         serializer = self.get_serializer(specialist, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
-        return Response(serializer.data)
+        return Response(self.get_serializer(specialist).data)
 
 
 @extend_schema(
@@ -674,10 +706,10 @@ class PublicSpecialistCoursesListAPIView(ListAPIView):
 @extend_schema(
     tags=['public-parent-specialists'],
     summary='Карточка специалиста по ID',
-    description='Та же компактная карточка, что и в списке: одна запись по `specialist_id`.',
+    description='Детальная информация о специалисте для экрана профиля по `specialist_id`.',
 )
 class PublicSpecialistCardRetrieveAPIView(RetrieveAPIView):
-    serializer_class = PublicSpecialistCardSerializer
+    serializer_class = PublicSpecialistDetailSerializer
     permission_classes = (IsAuthenticated,)
     lookup_url_kwarg = 'specialist_id'
 

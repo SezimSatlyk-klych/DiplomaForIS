@@ -2,7 +2,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
-from .enums import ParentRelationship, Specialization
+from .enums import Language, Method, ParentRelationship, Specialization, SpecialistDevelopmentType, WorkFormat
 from .models import Child, ParentAddress, Specialist, SpecialistDescription, UserProfile
 
 User = get_user_model()
@@ -133,6 +133,87 @@ class ChangePasswordSerializer(serializers.Serializer):
         return attrs
 
 
+class SpecialistSettingsSerializer(serializers.Serializer):
+    """Объединённый сериализатор: Specialist + SpecialistDescription для настроек."""
+    email = serializers.EmailField(read_only=True)
+    full_name = serializers.CharField(max_length=255)
+    approach_description = serializers.CharField(required=False, allow_blank=True)
+    specializations = serializers.JSONField(required=False, default=list)
+    years_experience = serializers.IntegerField(required=False, allow_null=True)
+    methods = serializers.JSONField(required=False, default=list)
+    age_range = serializers.CharField(required=False, allow_blank=True)
+    work_format = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    time_zone = serializers.CharField(required=False, allow_blank=True)
+    city = serializers.CharField(required=False, allow_blank=True)
+
+    def _validate_codes_list(self, value, enum_cls, field_name):
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            raise serializers.ValidationError(
+                {field_name: 'Ожидается массив кодов (например ["speech_therapist", "aba"]).'}
+            )
+        allowed = {choice.value for choice in enum_cls}
+        invalid = [item for item in value if item not in allowed]
+        if invalid:
+            raise serializers.ValidationError(
+                {field_name: f'Недопустимые значения: {invalid}. Используйте value из choices.'}
+            )
+        return value
+
+    def validate_specializations(self, value):
+        return self._validate_codes_list(value, Specialization, 'specializations')
+
+    def validate_methods(self, value):
+        return self._validate_codes_list(value, Method, 'methods')
+
+    def validate_work_format(self, value):
+        if value in (None, ''):
+            return value
+        allowed = {choice.value for choice in WorkFormat}
+        if value not in allowed:
+            raise serializers.ValidationError(
+                f'Недопустимый work_format: "{value}". Допустимо: {sorted(allowed)}.'
+            )
+        return value
+
+    def to_representation(self, specialist):
+        desc = getattr(specialist, 'description', None)
+        return {
+            'email': specialist.user.email,
+            'full_name': specialist.full_name,
+            'approach_description': specialist.approach_description,
+            'specializations': desc.specializations if desc else [],
+            'years_experience': desc.years_experience if desc else None,
+            'methods': desc.methods if desc else [],
+            'age_range': desc.age_range if desc else '',
+            'work_format': desc.work_format if desc else None,
+            'time_zone': desc.time_zone if desc else '',
+            'city': desc.city if desc else '',
+        }
+
+    def update(self, specialist, validated_data):
+        specialist_fields = {'full_name', 'approach_description'}
+        desc_fields = {
+            'specializations', 'years_experience', 'methods',
+            'age_range', 'work_format', 'time_zone', 'city',
+        }
+
+        for field in specialist_fields:
+            if field in validated_data:
+                setattr(specialist, field, validated_data[field])
+        specialist.save()
+
+        desc_data = {k: v for k, v in validated_data.items() if k in desc_fields}
+        if desc_data:
+            desc, _ = SpecialistDescription.objects.get_or_create(specialist=specialist)
+            for field, value in desc_data.items():
+                setattr(desc, field, value)
+            desc.save()
+
+        return specialist
+
+
 class PublicSpecialistSerializer(serializers.ModelSerializer):
     average_rating = serializers.FloatField(read_only=True)
     total_courses = serializers.IntegerField(read_only=True)
@@ -203,7 +284,7 @@ class PublicSpecialistCardSerializer(serializers.ModelSerializer):
             codes = obj.description.specializations
         except SpecialistDescription.DoesNotExist:
             return None
-        if not codes:
+        if not codes or not isinstance(codes, list):
             return None
         code = codes[0]
         try:
@@ -225,6 +306,113 @@ class PublicSpecialistCardSerializer(serializers.ModelSerializer):
         if request:
             return request.build_absolute_uri(url)
         return url
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        ar = data.get('average_rating')
+        if ar is not None:
+            data['average_rating'] = round(float(ar), 1)
+        return data
+
+
+class PublicSpecialistDetailSerializer(serializers.ModelSerializer):
+    avatar = serializers.SerializerMethodField()
+    average_rating = serializers.FloatField(read_only=True, allow_null=True)
+    reviews_count = serializers.IntegerField(read_only=True)
+    price_from = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True, allow_null=True)
+    currency = serializers.SerializerMethodField()
+    specializations = serializers.SerializerMethodField()
+    methods = serializers.SerializerMethodField()
+    languages = serializers.SerializerMethodField()
+    development_types = serializers.SerializerMethodField()
+    work_format = serializers.SerializerMethodField()
+    years_experience = serializers.IntegerField(source='description.years_experience', read_only=True, allow_null=True)
+    age_range = serializers.CharField(source='description.age_range', read_only=True)
+    city = serializers.CharField(source='description.city', read_only=True)
+    time_zone = serializers.CharField(source='description.time_zone', read_only=True)
+    provide_individual_consultations = serializers.BooleanField(
+        source='description.provide_individual_consultations', read_only=True
+    )
+    work_with_child_through_parent = serializers.BooleanField(
+        source='description.work_with_child_through_parent', read_only=True
+    )
+    provide_recommendations_and_plans = serializers.BooleanField(
+        source='description.provide_recommendations_and_plans', read_only=True
+    )
+    track_progress_and_analytics = serializers.BooleanField(
+        source='description.track_progress_and_analytics', read_only=True
+    )
+
+    class Meta:
+        model = Specialist
+        fields = (
+            'id',
+            'full_name',
+            'avatar',
+            'average_rating',
+            'reviews_count',
+            'price_from',
+            'currency',
+            'approach_description',
+            'specializations',
+            'methods',
+            'languages',
+            'development_types',
+            'work_format',
+            'years_experience',
+            'age_range',
+            'city',
+            'time_zone',
+            'provide_individual_consultations',
+            'work_with_child_through_parent',
+            'provide_recommendations_and_plans',
+            'track_progress_and_analytics',
+        )
+        read_only_fields = fields
+
+    def _enum_list(self, enum_cls, values):
+        if not values or not isinstance(values, list):
+            return []
+        labels = {choice.value: choice.label for choice in enum_cls}
+        return [{'value': v, 'label': labels.get(v, str(v))} for v in values if isinstance(v, str) and v in labels]
+
+    def get_currency(self, obj):
+        return 'KZT'
+
+    def get_avatar(self, obj):
+        if not obj.avatar:
+            return None
+        request = self.context.get('request')
+        url = obj.avatar.url
+        if request:
+            return request.build_absolute_uri(url)
+        return url
+
+    def get_specializations(self, obj):
+        values = getattr(getattr(obj, 'description', None), 'specializations', [])
+        return self._enum_list(Specialization, values)
+
+    def get_methods(self, obj):
+        values = getattr(getattr(obj, 'description', None), 'methods', [])
+        return self._enum_list(Method, values)
+
+    def get_languages(self, obj):
+        values = getattr(getattr(obj, 'description', None), 'languages', [])
+        return self._enum_list(Language, values)
+
+    def get_development_types(self, obj):
+        values = getattr(getattr(obj, 'description', None), 'development_types', [])
+        return self._enum_list(SpecialistDevelopmentType, values)
+
+    def get_work_format(self, obj):
+        value = getattr(getattr(obj, 'description', None), 'work_format', None)
+        if not value:
+            return None
+        try:
+            label = WorkFormat(value).label
+        except ValueError:
+            label = str(value)
+        return {'value': value, 'label': label}
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
