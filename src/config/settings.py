@@ -189,6 +189,7 @@ REST_FRAMEWORK = {
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
+    'TOKEN_OBTAIN_SERIALIZER': 'accounts.serializers.CarestepsTokenObtainPairSerializer',
 }
 
 # CORS
@@ -201,6 +202,23 @@ CORS_ALLOWED_ORIGINS = [
 
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
 OPENAI_MODEL = os.environ.get('OPENAI_MODEL', 'gpt-4o-mini')
+
+# Email (восстановление пароля и др.). В DEBUG по умолчанию письма в консоль.
+EMAIL_BACKEND = os.environ.get(
+    'EMAIL_BACKEND',
+    'django.core.mail.backends.console.EmailBackend' if DEBUG else 'django.core.mail.backends.smtp.EmailBackend',
+)
+EMAIL_HOST = os.environ.get('EMAIL_HOST', '')
+EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', '1') == '1'
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'webmaster@localhost')
+
+# Восстановление пароля (код на почту)
+PASSWORD_RESET_RESEND_SECONDS = int(os.environ.get('PASSWORD_RESET_RESEND_SECONDS', '60'))
+PASSWORD_RESET_CODE_TTL = int(os.environ.get('PASSWORD_RESET_CODE_TTL', '600'))
+PASSWORD_RESET_TOKEN_MAX_AGE = int(os.environ.get('PASSWORD_RESET_TOKEN_MAX_AGE', '900'))
 
 # Swagger (drf-spectacular)
 SPECTACULAR_SETTINGS = {
@@ -218,6 +236,7 @@ SPECTACULAR_SETTINGS = {
     'SECURITY': [{'Bearer': []}],
     'TAGS': [
         {'name': 'auth'},
+        {'name': 'password-reset'},
         {'name': 'profile'},
         {'name': 'specialist'},
         {'name': 'specialist-description'},

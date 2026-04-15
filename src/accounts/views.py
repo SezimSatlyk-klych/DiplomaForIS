@@ -1,6 +1,8 @@
+import logging
+
 from django.contrib.auth import get_user_model
 from django.db.models import Avg, Count, Min, Q, Sum
-from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiTypes, extend_schema
+from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiTypes, extend_schema, extend_schema_view
 from rest_framework import status
 from rest_framework.generics import (
     GenericAPIView,
@@ -12,6 +14,8 @@ from rest_framework.generics import (
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.views import TokenObtainPairView
 
 from .enums import (
     BehaviorNotice,
@@ -32,10 +36,15 @@ from .enums import (
 from .models import Child, ParentAddress, Specialist, SpecialistDescription, UserProfile
 from courses.models import Course, CoursePurchase, CourseReview
 from courses.serializers import PublicCourseCardSerializer
+from .auth_utils import resolve_user_type
+from .password_reset import RESEND_SECONDS, request_reset_code, reset_password_with_token, verify_code
 from .serializers import (
     ChangePasswordSerializer,
     ChildSerializer,
     ParentAddressSerializer,
+    PasswordResetConfirmSerializer,
+    PasswordResetRequestSerializer,
+    PasswordResetVerifySerializer,
     ProfileSerializer,
     RegisterSerializer,
     SpecialistDescriptionSerializer,
@@ -83,6 +92,16 @@ def _public_specialist_cards_query_docs() -> str:
 
 User = get_user_model()
 
+_PARENT_AVATAR_NOTE = (
+    'Поле **`avatar`** (файл): при загрузке используйте **multipart/form-data** вместе с остальными полями '
+    'или только `avatar` для смены фото. В ответах `avatar` — абсолютный URL либо `null`.'
+)
+
+_SPECIALIST_AVATAR_NOTE = (
+    'Поле **`avatar`**: как у родителя — **multipart/form-data** для загрузки; в JSON-запросах без файла '
+    'поле не передаётся. Ответ: абсолютный URL или `null`.'
+)
+
 
 @extend_schema(tags=['auth'])
 class RegisterAPIView(GenericAPIView):
@@ -99,7 +118,150 @@ class RegisterAPIView(GenericAPIView):
         )
 
 
-@extend_schema(tags=['profile'])
+@extend_schema(
+    tags=['auth'],
+    summary='Вход (JWT)',
+    description=(
+        'Тело: `username` — **email**, как при регистрации; `password`.\n\n'
+        'В ответе: `access`, `refresh` и **`user_type`** — `parent` (профиль родителя), '
+        '`specialist`, `both` (оба профиля) или `none` (ещё ни родитель, ни специалист). '
+        'То же значение добавлено в claims access-токена (`user_type`).'
+    ),
+)
+class LoginAPIView(TokenObtainPairView):
+    pass
+
+
+@extend_schema(
+    tags=['password-reset'],
+    summary='Запросить код на почту',
+    description=(
+        'Шаг 1 (как в макете «Забыли пароль»): передать `email`. '
+        'Если аккаунт с такой почтой есть, на неё уйдёт **4-значный код**. '
+        'Ответ одинаковый, зарегистрирована почта или нет — чтобы не раскрывать наличие пользователя.\n\n'
+        'Повторная отправка на ту же почту раньше чем через `resend_after_seconds` секунд вернёт **429** '
+        'и поле `retry_after_seconds` для таймера «Отправить код ещё раз».'
+    ),
+)
+class PasswordResetRequestAPIView(GenericAPIView):
+    serializer_class = PasswordResetRequestSerializer
+    permission_classes = (AllowAny,)
+
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data['email']
+        try:
+            ok, retry_after = request_reset_code(email)
+        except Exception:
+            logging.exception('password_reset: send mail failed for %s', email)
+            return Response(
+                {'detail': 'Не удалось отправить письмо. Проверьте настройки SMTP или попробуйте позже.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        if not ok:
+            return Response(
+                {
+                    'detail': 'Повторная отправка возможна позже.',
+                    'retry_after_seconds': retry_after,
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+        return Response(
+            {
+                'detail': 'Если указанная почта зарегистрирована, мы отправили на неё код.',
+                'resend_after_seconds': RESEND_SECONDS,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+@extend_schema(
+    tags=['password-reset'],
+    summary='Проверить код из письма',
+    description=(
+        'Шаг 2: `email` и `code` (4 цифры). При успехе вернётся `reset_token` — передайте его на шаг 3. '
+        'Токен ограничен по времени (см. настройки сервера).'
+    ),
+)
+class PasswordResetVerifyAPIView(GenericAPIView):
+    serializer_class = PasswordResetVerifySerializer
+    permission_classes = (AllowAny,)
+
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        token, err = verify_code(
+            serializer.validated_data['email'],
+            serializer.validated_data['code'],
+        )
+        if err:
+            return Response({'detail': err}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'reset_token': token}, status=status.HTTP_200_OK)
+
+
+@extend_schema(
+    tags=['password-reset'],
+    summary='Новый пароль и вход',
+    description=(
+        'Шаг 3: `reset_token` с шага проверки кода, `new_password` и `new_password_confirm`. '
+        'Требования к паролю как в приложении: не короче 8 символов и хотя бы одна цифра.\n\n'
+        'В ответе — JWT `access`, `refresh` и **`user_type`** (как после логина).'
+    ),
+)
+class PasswordResetConfirmAPIView(GenericAPIView):
+    serializer_class = PasswordResetConfirmSerializer
+    permission_classes = (AllowAny,)
+
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user, err = reset_password_with_token(
+            serializer.validated_data['reset_token'],
+            serializer.validated_data['new_password'],
+        )
+        if err:
+            return Response({'detail': err}, status=status.HTTP_400_BAD_REQUEST)
+        refresh = RefreshToken.for_user(user)
+        ut = resolve_user_type(user)
+        refresh.access_token['user_type'] = ut
+        return Response(
+            {
+                'detail': 'Пароль обновлён.',
+                'access': str(refresh.access_token),
+                'refresh': str(refresh),
+                'user_type': ut,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+@extend_schema_view(
+    get=extend_schema(
+        tags=['profile'],
+        summary='Профиль родителя: получить',
+        description='Данные профиля текущего пользователя-родителя, включая `avatar` (URL или null).',
+    ),
+    post=extend_schema(
+        tags=['profile'],
+        summary='Профиль родителя: создать',
+        description=(
+            'Тело: `full_name`, `relationship` (mom|dad|guardian|other), при other — `relationship_other`. '
+            'Опционально файл **`avatar`**. ' + _PARENT_AVATAR_NOTE
+        ),
+    ),
+    put=extend_schema(
+        tags=['profile'],
+        summary='Профиль родителя: полное обновление (PUT)',
+        description='Все обязательные поля профиля; опционально **`avatar`**. ' + _PARENT_AVATAR_NOTE,
+    ),
+    patch=extend_schema(
+        tags=['profile'],
+        summary='Профиль родителя: частичное обновление (PATCH)',
+        description='Любое подмножество полей, в том числе только **`avatar`**. ' + _PARENT_AVATAR_NOTE,
+    ),
+    delete=extend_schema(tags=['profile'], summary='Профиль родителя: удалить'),
+)
 class ProfileAPIView(RetrieveUpdateDestroyAPIView):
     serializer_class = ProfileSerializer
     permission_classes = (IsAuthenticated,)
@@ -159,7 +321,32 @@ class ProfileAPIView(RetrieveUpdateDestroyAPIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-@extend_schema(tags=['specialist'])
+@extend_schema_view(
+    get=extend_schema(
+        tags=['specialist'],
+        summary='Профиль специалиста: получить',
+        description='Включая **`avatar`** (абсолютный URL или null).',
+    ),
+    post=extend_schema(
+        tags=['specialist'],
+        summary='Профиль специалиста: создать',
+        description=(
+            'Поля: `full_name`, опционально `approach_description`, опционально файл **`avatar`**. '
+            + _SPECIALIST_AVATAR_NOTE
+        ),
+    ),
+    put=extend_schema(
+        tags=['specialist'],
+        summary='Профиль специалиста: полное обновление (PUT)',
+        description='Все поля сериализатора; опционально **`avatar`**. ' + _SPECIALIST_AVATAR_NOTE,
+    ),
+    patch=extend_schema(
+        tags=['specialist'],
+        summary='Профиль специалиста: частичное обновление (PATCH)',
+        description='Любое подмножество полей, в том числе только **`avatar`**. ' + _SPECIALIST_AVATAR_NOTE,
+    ),
+    delete=extend_schema(tags=['specialist'], summary='Профиль специалиста: удалить'),
+)
 class SpecialistAPIView(RetrieveUpdateDestroyAPIView):
     serializer_class = SpecialistSerializer
     permission_classes = (IsAuthenticated,)
@@ -390,10 +577,25 @@ class ChildDetailAPIView(RetrieveUpdateDestroyAPIView):
         return Child.objects.filter(pk=first)
 
 
-@extend_schema(
-    tags=['settings'],
-    summary='Профиль родителя (настройки)',
-    description='GET — получить профиль. PUT — обновить (full_name, relationship, relationship_other).',
+@extend_schema_view(
+    get=extend_schema(
+        tags=['settings'],
+        summary='Профиль родителя (настройки): GET',
+        description='Те же поля, что и `GET /api/auth/profile/`, включая **`avatar`**.',
+    ),
+    put=extend_schema(
+        tags=['settings'],
+        summary='Профиль родителя (настройки): PUT',
+        description=(
+            'Частичное обновление: передайте только изменяемые поля (`full_name`, `relationship`, '
+            '`relationship_other`, файл **`avatar`**). ' + _PARENT_AVATAR_NOTE
+        ),
+    ),
+    patch=extend_schema(
+        tags=['settings'],
+        summary='Профиль родителя (настройки): PATCH',
+        description='Синоним PUT для экрана настроек (частичное обновление). ' + _PARENT_AVATAR_NOTE,
+    ),
 )
 class ParentSettingsProfileAPIView(GenericAPIView):
     serializer_class = ProfileSerializer
@@ -422,6 +624,9 @@ class ParentSettingsProfileAPIView(GenericAPIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
+
+    def patch(self, request):
+        return self.put(request)
 
 
 @extend_schema(
@@ -474,11 +679,15 @@ class ParentSettingsChildAPIView(GenericAPIView):
     tags=['settings'],
     summary='Профиль специалиста (настройки)',
     description=(
-        'GET — полный профиль: аккаунт + информация + работа.\n\n'
-        'PUT — можно отправлять любое подмножество полей: `full_name`, '
-        '`approach_description`, `specializations`, `years_experience`, '
+        'GET — полный профиль: аккаунт + информация + работа + **`avatar`** (URL).\n\n'
+        'PUT — любое подмножество полей: `full_name`, '
+        '`approach_description`, **`avatar`** (файл, multipart), `specializations`, `years_experience`, '
         '`methods`, `age_range`, `work_format`, `time_zone`, `city`.\n\n'
-        'Подсказки по формату:\n'
+        'Если нужны и JSON-массивы (`specializations`, `methods`), и фото в одном запросе — '
+        'используйте **multipart** и передавайте массивы JSON-строками в полях формы; '
+        'либо обновите текстовые поля JSON-запросом, а фото отдельным multipart.\n\n'
+        + _SPECIALIST_AVATAR_NOTE
+        + '\n\nПодсказки по формату:\n'
         '- `approach_description`: свободный текст (обычно 3-5 предложений о подходе).\n'
         '- `specializations`: массив кодов из `GET /api/auth/specialist/description/choices/` -> '
         '`specializations[].value`, например `["speech_therapist", "aba"]`.\n'

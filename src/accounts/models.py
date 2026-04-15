@@ -19,6 +19,7 @@ class UserProfile(models.Model):
     full_name = models.CharField(max_length=255)
     relationship = models.CharField(max_length=20, choices=ParentRelationship.choices)
     relationship_other = models.CharField(max_length=255, blank=True)
+    avatar = models.ImageField(upload_to='parents/avatars/', null=True, blank=True)
 
 
 class ParentAddress(models.Model):
@@ -63,3 +64,18 @@ class Child(models.Model):
     motivators = models.JSONField(default=list, blank=True, help_text='Что радует: звёзды, аплодисменты, наклейки, мультик после занятия.')
     interests = models.JSONField(default=list, blank=True)
     comfortable_duration = models.CharField(max_length=20, choices=ComfortableDuration.choices, null=True, blank=True)
+
+
+class PasswordResetCode(models.Model):
+    """Одноразовый код из письма (хэш в БД)."""
+
+    email = models.EmailField(db_index=True)
+    code_hash = models.CharField(max_length=64)
+    expires_at = models.DateTimeField(db_index=True)
+    failed_attempts = models.PositiveSmallIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Код восстановления пароля'
+        verbose_name_plural = 'Коды восстановления пароля'

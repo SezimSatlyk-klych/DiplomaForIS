@@ -1,11 +1,28 @@
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
+from .auth_utils import resolve_user_type
 from .enums import Language, Method, ParentRelationship, Specialization, SpecialistDevelopmentType, WorkFormat
 from .models import Child, ParentAddress, Specialist, SpecialistDescription, UserProfile
 
 User = get_user_model()
+
+
+class CarestepsTokenObtainPairSerializer(TokenObtainPairSerializer):
+    """Логин: в теле ответа и в access-токене добавляется `user_type` (родитель / специалист)."""
+
+    @classmethod
+    def get_token(cls, user):
+        token = super().get_token(user)
+        token['user_type'] = resolve_user_type(user)
+        return token
+
+    def validate(self, attrs):
+        data = super().validate(attrs)
+        data['user_type'] = resolve_user_type(self.user)
+        return data
 
 
 class RegisterSerializer(serializers.ModelSerializer):
@@ -34,7 +51,18 @@ class ProfileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = UserProfile
-        fields = ('id', 'email', 'full_name', 'relationship', 'relationship_other')
+        fields = ('id', 'email', 'full_name', 'relationship', 'relationship_other', 'avatar')
+        extra_kwargs = {'avatar': {'required': False, 'allow_null': True}}
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get('request')
+        if instance.avatar:
+            url = instance.avatar.url
+            data['avatar'] = request.build_absolute_uri(url) if request else url
+        else:
+            data['avatar'] = None
+        return data
 
     def validate(self, attrs):
         if attrs.get('relationship') == ParentRelationship.OTHER and not attrs.get('relationship_other', '').strip():
@@ -52,7 +80,18 @@ class SpecialistSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Specialist
-        fields = ('id', 'email', 'full_name', 'approach_description')
+        fields = ('id', 'email', 'full_name', 'approach_description', 'avatar')
+        extra_kwargs = {'avatar': {'required': False, 'allow_null': True}}
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get('request')
+        if instance.avatar:
+            url = instance.avatar.url
+            data['avatar'] = request.build_absolute_uri(url) if request else url
+        else:
+            data['avatar'] = None
+        return data
 
     def create(self, validated_data):
         return Specialist.objects.create(user=self.context['request'].user, **validated_data)
@@ -116,6 +155,37 @@ class ParentAddressSerializer(serializers.ModelSerializer):
         return ParentAddress.objects.create(profile=profile, **validated_data)
 
 
+class PasswordResetRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+
+class PasswordResetVerifySerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    code = serializers.CharField(max_length=4, min_length=4)
+
+    def validate_code(self, value):
+        v = (value or '').strip()
+        if len(v) != 4 or not v.isdigit():
+            raise serializers.ValidationError('Код должен состоять из 4 цифр.')
+        return v
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    reset_token = serializers.CharField(write_only=True)
+    new_password = serializers.CharField(write_only=True, min_length=8)
+    new_password_confirm = serializers.CharField(write_only=True)
+
+    def validate_new_password(self, value):
+        if not any(c.isdigit() for c in value):
+            raise serializers.ValidationError('Пароль должен содержать хотя бы одну цифру.')
+        return value
+
+    def validate(self, attrs):
+        if attrs['new_password'] != attrs['new_password_confirm']:
+            raise serializers.ValidationError({'new_password_confirm': 'Пароли не совпадают.'})
+        return attrs
+
+
 class ChangePasswordSerializer(serializers.Serializer):
     old_password = serializers.CharField(write_only=True)
     new_password = serializers.CharField(write_only=True, validators=[validate_password])
@@ -138,6 +208,7 @@ class SpecialistSettingsSerializer(serializers.Serializer):
     email = serializers.EmailField(read_only=True)
     full_name = serializers.CharField(max_length=255)
     approach_description = serializers.CharField(required=False, allow_blank=True)
+    avatar = serializers.ImageField(required=False, allow_null=True)
     specializations = serializers.JSONField(required=False, default=list)
     years_experience = serializers.IntegerField(required=False, allow_null=True)
     methods = serializers.JSONField(required=False, default=list)
@@ -179,10 +250,17 @@ class SpecialistSettingsSerializer(serializers.Serializer):
 
     def to_representation(self, specialist):
         desc = getattr(specialist, 'description', None)
+        request = self.context.get('request')
+        if specialist.avatar:
+            url = specialist.avatar.url
+            avatar_url = request.build_absolute_uri(url) if request else url
+        else:
+            avatar_url = None
         return {
             'email': specialist.user.email,
             'full_name': specialist.full_name,
             'approach_description': specialist.approach_description,
+            'avatar': avatar_url,
             'specializations': desc.specializations if desc else [],
             'years_experience': desc.years_experience if desc else None,
             'methods': desc.methods if desc else [],
@@ -193,7 +271,7 @@ class SpecialistSettingsSerializer(serializers.Serializer):
         }
 
     def update(self, specialist, validated_data):
-        specialist_fields = {'full_name', 'approach_description'}
+        specialist_fields = {'full_name', 'approach_description', 'avatar'}
         desc_fields = {
             'specializations', 'years_experience', 'methods',
             'age_range', 'work_format', 'time_zone', 'city',
