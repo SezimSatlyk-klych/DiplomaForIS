@@ -1,6 +1,9 @@
 from django.conf import settings
 from django.db import models
 
+import uuid
+from pathlib import Path
+
 from .enums import (
     ComfortableDuration,
     CommunicationStyle,
@@ -14,12 +17,35 @@ from .enums import (
 )
 
 
+def _upload_ext_from_filename(filename: str, default: str = '.png') -> str:
+    """
+    Some clients upload files with weird names like ".png" / "-.png" (no basename) or without an extension.
+    We ignore the basename and normalize only the extension, then generate our own filename.
+    """
+    ext = (Path(filename).suffix or '').lower().strip()
+    if not ext or ext == '.':
+        return default
+    if len(ext) > 10:
+        return default
+    return ext
+
+
+def parent_avatar_upload_to(instance, filename: str) -> str:
+    ext = _upload_ext_from_filename(filename, default='.png')
+    return f'parents/avatars/{uuid.uuid4().hex}{ext}'
+
+
+def specialist_avatar_upload_to(instance, filename: str) -> str:
+    ext = _upload_ext_from_filename(filename, default='.png')
+    return f'specialists/avatars/{uuid.uuid4().hex}{ext}'
+
+
 class UserProfile(models.Model):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='profile')
     full_name = models.CharField(max_length=255)
     relationship = models.CharField(max_length=20, choices=ParentRelationship.choices)
     relationship_other = models.CharField(max_length=255, blank=True)
-    avatar = models.ImageField(upload_to='parents/avatars/', null=True, blank=True)
+    avatar = models.ImageField(upload_to=parent_avatar_upload_to, null=True, blank=True)
 
 
 class ParentAddress(models.Model):
@@ -31,7 +57,7 @@ class Specialist(models.Model):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='specialist')
     full_name = models.CharField('Имя и Фамилия', max_length=255)
     approach_description = models.TextField('О подходе (3–5 предложений)', blank=True)
-    avatar = models.ImageField(upload_to='specialists/avatars/', null=True, blank=True)
+    avatar = models.ImageField(upload_to=specialist_avatar_upload_to, null=True, blank=True)
 
 
 class SpecialistDescription(models.Model):
