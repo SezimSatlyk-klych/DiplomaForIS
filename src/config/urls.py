@@ -30,6 +30,7 @@ urlpatterns = [
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
 ]
 
-# Serve uploaded media files in development.
-if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+# Serve uploaded media files.
+# This project is often deployed with Gunicorn directly (without nginx),
+# so keep media routing enabled even when DEBUG=False.
+urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
